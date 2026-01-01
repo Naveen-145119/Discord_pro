@@ -53,7 +53,10 @@ export function DMPage() {
             const fetchDMDetails = async () => {
                 try {
                     const dm = await databases.getDocument(DATABASE_ID, COLLECTIONS.DM_CHANNELS, channelId);
-                    const friendId = (dm.participantIds as string[]).find(id => id !== user?.$id);
+                    const participants = typeof dm.participantIds === 'string'
+                        ? JSON.parse(dm.participantIds)
+                        : dm.participantIds;
+                    const friendId = participants.find((id: string) => id !== user?.$id);
                     if (friendId) {
                         const friendDoc = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, friendId);
                         setFriend(friendDoc as unknown as User);
