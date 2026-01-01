@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { databases, client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
-import { ID } from 'appwrite';
+import { ID, Permission, Role } from 'appwrite';
 import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
 import type { User } from '@/types';
@@ -77,7 +77,15 @@ export function useCall(): UseCallReturn {
                     channelId,
                     callType,
                     status: 'ringing'
-                }
+                },
+                [
+                    Permission.read(Role.user(user.$id)),
+                    Permission.read(Role.user(friendId)),
+                    Permission.update(Role.user(user.$id)),
+                    Permission.update(Role.user(friendId)),
+                    Permission.delete(Role.user(user.$id)),
+                    Permission.delete(Role.user(friendId)),
+                ]
             );
 
             setCurrentCall(call as unknown as ActiveCall);
