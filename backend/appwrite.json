@@ -1,0 +1,85 @@
+{
+    "projectId": "discord_pro",
+    "projectName": "Discord Pro",
+    "functions": [
+        {
+            "functionId": "send-message",
+            "name": "Send Message",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/send-message"
+        },
+        {
+            "functionId": "create-server",
+            "name": "Create Server",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/create-server"
+        },
+        {
+            "functionId": "join-server",
+            "name": "Join Server",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/join-server"
+        },
+        {
+            "functionId": "create-channel",
+            "name": "Create Channel",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/create-channel"
+        },
+        {
+            "functionId": "webrtc-signal",
+            "name": "WebRTC Signaling",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/webrtc-signal"
+        },
+        {
+            "functionId": "cleanup-expired",
+            "name": "Cleanup Expired",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/cleanup-expired",
+            "schedule": "*/5 * * * *"
+        }
+    ],
+    "databases": [
+        {
+            "databaseId": "discord_db",
+            "name": "Discord Database"
+        }
+    ],
+    "buckets": [
+        {
+            "bucketId": "avatars",
+            "name": "Avatars",
+            "maximumFileSize": 5242880,
+            "allowedFileExtensions": [
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+                "webp"
+            ]
+        },
+        {
+            "bucketId": "attachments",
+            "name": "Attachments",
+            "maximumFileSize": 26214400
+        },
+        {
+            "bucketId": "banners",
+            "name": "Banners",
+            "maximumFileSize": 10485760,
+            "allowedFileExtensions": [
+                "png",
+                "jpg",
+                "jpeg",
+                "webp"
+            ]
+        }
+    ]
+}

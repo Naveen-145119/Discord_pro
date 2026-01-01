@@ -1,0 +1,453 @@
+/**
+ * useWebRTC Hook
+ * Manages WebRTC peer connections with Appwrite Realtime signaling
+ * 
+ * @see https://appwrite.io/docs/apis/realtime
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { client, databases, DATABASE_ID } from '@/lib/appwrite';
+import {
+    createPeerConnection,
+    getUserMedia,
+    getDisplayMedia,
+    setVideoBitrate,
+    createVoiceActivityDetector,
+    parseIceCandidate,
+    BITRATE_CONFIG,
+    type ConnectionState,
+    type CallParticipant,
+    type WebRTCSignal,
+} from '@/lib/webrtc';
+import { ID } from 'appwrite';
+
+// Signals collection (add to COLLECTIONS constant)
+const SIGNALS_COLLECTION = 'webrtc_signals';
+
+interface UseWebRTCProps {
+    channelId: string;
+    userId: string;
+    displayName: string;
+}
+
+interface UseWebRTCReturn {
+    // State
+    connectionState: ConnectionState;
+    localStream: MediaStream | null;
+    participants: Map<string, CallParticipant>;
+    isMuted: boolean;
+    isDeafened: boolean;
+    isVideoOn: boolean;
+    isScreenSharing: boolean;
+    isSpeaking: boolean;
+    error: string | null;
+
+    // Actions
+    joinChannel: () => Promise<void>;
+    leaveChannel: () => void;
+    toggleMute: () => void;
+    toggleDeafen: () => void;
+    toggleVideo: () => Promise<void>;
+    startScreenShare: () => Promise<void>;
+    stopScreenShare: () => void;
+}
+
+export function useWebRTC({
+    channelId,
+    userId,
+    displayName: _displayName,
+}: UseWebRTCProps): UseWebRTCReturn {
+    // Connection state
+    const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
+    const [error, setError] = useState<string | null>(null);
+
+    // Media state
+    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+    const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+    const [participants, setParticipants] = useState<Map<string, CallParticipant>>(new Map());
+
+    // User controls
+    const [isMuted, setIsMuted] = useState(false);
+    const [isDeafened, setIsDeafened] = useState(false);
+    const [isVideoOn, setIsVideoOn] = useState(false);
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+
+    // Refs for cleanup
+    const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+    const unsubscribeRef = useRef<(() => void) | null>(null);
+    const voiceDetectorCleanupRef = useRef<(() => void) | null>(null);
+
+    /**
+     * Create signaling document in Appwrite
+     */
+    const sendSignal = useCallback(async (
+        toUserId: string,
+        type: WebRTCSignal['type'],
+        data: { sdp?: string; candidate?: string }
+    ) => {
+        const expiresAt = new Date(Date.now() + 30_000).toISOString(); // 30s TTL
+
+        await databases.createDocument(
+            DATABASE_ID,
+            SIGNALS_COLLECTION,
+            ID.unique(),
+            {
+                channelId,
+                fromUserId: userId,
+                toUserId,
+                type,
+                sdp: data.sdp ?? null,
+                candidate: data.candidate ?? null,
+                expiresAt,
+            }
+        );
+    }, [channelId, userId]);
+
+    /**
+     * Handle incoming signaling message
+     */
+    const handleSignal = useCallback(async (signal: WebRTCSignal) => {
+        // Ignore own signals
+        if (signal.fromUserId === userId) return;
+
+        // Ignore signals not for us
+        if (signal.toUserId !== 'all' && signal.toUserId !== userId) return;
+
+        const peerId = signal.fromUserId;
+        let pc = peerConnectionsRef.current.get(peerId);
+
+        // Create peer connection if doesn't exist
+        if (!pc) {
+            pc = createPeerConnection();
+            setupPeerConnection(pc, peerId);
+            peerConnectionsRef.current.set(peerId, pc);
+        }
+
+        try {
+            switch (signal.type) {
+                case 'offer': {
+                    if (!signal.sdp) break;
+
+                    await pc.setRemoteDescription({
+                        type: 'offer',
+                        sdp: signal.sdp,
+                    });
+
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+
+                    await sendSignal(peerId, 'answer', {
+                        sdp: answer.sdp,
+                    });
+                    break;
+                }
+
+                case 'answer': {
+                    if (!signal.sdp) break;
+
+                    await pc.setRemoteDescription({
+                        type: 'answer',
+                        sdp: signal.sdp,
+                    });
+                    break;
+                }
+
+                case 'ice-candidate': {
+                    if (!signal.candidate) break;
+
+                    const candidate = parseIceCandidate(signal.candidate);
+                    if (candidate) {
+                        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                    }
+                    break;
+                }
+            }
+        } catch (err) {
+            console.error('Error handling signal:', err);
+        }
+    }, [userId, sendSignal]);
+
+    /**
+     * Setup peer connection event handlers
+     */
+    const setupPeerConnection = useCallback((
+        pc: RTCPeerConnection,
+        peerId: string
+    ) => {
+        // ICE candidate
+        pc.onicecandidate = async (event) => {
+            if (event.candidate) {
+                await sendSignal(peerId, 'ice-candidate', {
+                    candidate: JSON.stringify(event.candidate.toJSON()),
+                });
+            }
+        };
+
+        // Connection state
+        pc.onconnectionstatechange = () => {
+            const state = pc.connectionState;
+            if (state === 'connected') {
+                setConnectionState('connected');
+            } else if (state === 'failed' || state === 'disconnected') {
+                setConnectionState('failed');
+            }
+        };
+
+        // Remote stream
+        pc.ontrack = (event) => {
+            const [stream] = event.streams;
+
+            setParticipants((prev) => {
+                const updated = new Map(prev);
+                const existing = updated.get(peerId);
+
+                updated.set(peerId, {
+                    odId: peerId,
+                    displayName: existing?.displayName || 'Unknown',
+                    isMuted: existing?.isMuted ?? false,
+                    isDeafened: existing?.isDeafened ?? false,
+                    isVideoOn: existing?.isVideoOn ?? false,
+                    isScreenSharing: existing?.isScreenSharing ?? false,
+                    isSpeaking: false,
+                    stream,
+                });
+
+                return updated;
+            });
+        };
+
+        // Add local tracks
+        if (localStream) {
+            localStream.getTracks().forEach((track) => {
+                pc.addTrack(track, localStream);
+            });
+        }
+    }, [sendSignal, localStream]);
+
+    /**
+     * Join voice channel
+     */
+    const joinChannel = useCallback(async () => {
+        if (connectionState !== 'disconnected') return;
+
+        setConnectionState('connecting');
+        setError(null);
+
+        try {
+            // Get local audio stream
+            const stream = await getUserMedia(false);
+            setLocalStream(stream);
+
+            // Setup voice activity detection
+            voiceDetectorCleanupRef.current = createVoiceActivityDetector(
+                stream,
+                setIsSpeaking
+            );
+
+            // Subscribe to signaling via Appwrite Realtime
+            const channel = `databases.${DATABASE_ID}.collections.${SIGNALS_COLLECTION}.documents`;
+
+            unsubscribeRef.current = client.subscribe(channel, (response: {
+                events: string[];
+                payload: unknown;
+            }) => {
+                const signal = response.payload as WebRTCSignal;
+
+                // Only handle signals for this channel
+                if (signal.channelId === channelId) {
+                    handleSignal(signal);
+                }
+            });
+
+            // Announce presence (broadcast offer to all)
+            const pc = createPeerConnection();
+            setupPeerConnection(pc, 'all');
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            await sendSignal('all', 'offer', {
+                sdp: offer.sdp,
+            });
+
+            setConnectionState('connected');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to join channel';
+            setError(message);
+            setConnectionState('failed');
+        }
+    }, [channelId, connectionState, handleSignal, sendSignal, setupPeerConnection]);
+
+    /**
+     * Leave voice channel
+     */
+    const leaveChannel = useCallback(() => {
+        // Stop local stream
+        localStream?.getTracks().forEach((track) => track.stop());
+        setLocalStream(null);
+
+        // Stop screen share
+        screenStream?.getTracks().forEach((track) => track.stop());
+        setScreenStream(null);
+
+        // Close all peer connections
+        peerConnectionsRef.current.forEach((pc) => pc.close());
+        peerConnectionsRef.current.clear();
+
+        // Unsubscribe from Realtime
+        unsubscribeRef.current?.();
+        unsubscribeRef.current = null;
+
+        // Cleanup voice detector
+        voiceDetectorCleanupRef.current?.();
+        voiceDetectorCleanupRef.current = null;
+
+        // Reset state
+        setParticipants(new Map());
+        setConnectionState('disconnected');
+        setIsMuted(false);
+        setIsDeafened(false);
+        setIsVideoOn(false);
+        setIsScreenSharing(false);
+        setIsSpeaking(false);
+    }, [localStream, screenStream]);
+
+    /**
+     * Toggle mute
+     */
+    const toggleMute = useCallback(() => {
+        if (!localStream) return;
+
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+            audioTrack.enabled = isMuted; // Toggle
+            setIsMuted(!isMuted);
+        }
+    }, [localStream, isMuted]);
+
+    /**
+     * Toggle deafen
+     */
+    const toggleDeafen = useCallback(() => {
+        const newDeafened = !isDeafened;
+        setIsDeafened(newDeafened);
+
+        // Mute all remote streams
+        participants.forEach((participant) => {
+            if (participant.stream) {
+                participant.stream.getAudioTracks().forEach((track) => {
+                    track.enabled = !newDeafened;
+                });
+            }
+        });
+
+        // Also mute self when deafened
+        if (newDeafened && !isMuted) {
+            toggleMute();
+        }
+    }, [isDeafened, isMuted, participants, toggleMute]);
+
+    /**
+     * Toggle video
+     */
+    const toggleVideo = useCallback(async () => {
+        if (!localStream) return;
+
+        if (isVideoOn) {
+            // Turn off video
+            localStream.getVideoTracks().forEach((track) => {
+                track.stop();
+                localStream.removeTrack(track);
+            });
+            setIsVideoOn(false);
+        } else {
+            // Turn on video
+            try {
+                const videoStream = await getUserMedia(true);
+                const videoTrack = videoStream.getVideoTracks()[0];
+
+                if (videoTrack) {
+                    localStream.addTrack(videoTrack);
+
+                    // Add to all peer connections
+                    peerConnectionsRef.current.forEach((pc) => {
+                        pc.addTrack(videoTrack, localStream);
+                    });
+                }
+                setIsVideoOn(true);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to start video';
+                setError(message);
+            }
+        }
+    }, [localStream, isVideoOn]);
+
+    /**
+     * Start screen sharing (60fps 1080p)
+     */
+    const startScreenShare = useCallback(async () => {
+        if (isScreenSharing) return;
+
+        try {
+            const stream = await getDisplayMedia();
+            setScreenStream(stream);
+
+            // Add to all peer connections with high bitrate
+            peerConnectionsRef.current.forEach(async (pc) => {
+                stream.getTracks().forEach((track) => {
+                    pc.addTrack(track, stream);
+                });
+
+                await setVideoBitrate(pc, BITRATE_CONFIG.screenShare);
+            });
+
+            // Handle stream end (user clicks stop)
+            stream.getVideoTracks()[0].onended = () => {
+                stopScreenShare();
+            };
+
+            setIsScreenSharing(true);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to share screen';
+            setError(message);
+        }
+    }, [isScreenSharing]);
+
+    /**
+     * Stop screen sharing
+     */
+    const stopScreenShare = useCallback(() => {
+        if (!screenStream) return;
+
+        screenStream.getTracks().forEach((track) => track.stop());
+        setScreenStream(null);
+        setIsScreenSharing(false);
+    }, [screenStream]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            leaveChannel();
+        };
+    }, [leaveChannel]);
+
+    return {
+        connectionState,
+        localStream,
+        participants,
+        isMuted,
+        isDeafened,
+        isVideoOn,
+        isScreenSharing,
+        isSpeaking,
+        error,
+        joinChannel,
+        leaveChannel,
+        toggleMute,
+        toggleDeafen,
+        toggleVideo,
+        startScreenShare,
+        stopScreenShare,
+    };
+}

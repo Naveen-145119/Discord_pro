@@ -1,0 +1,243 @@
+import { create } from 'zustand';
+import { databases, DATABASE_ID, COLLECTIONS, client } from '@/lib/appwrite';
+import type { Message, Channel } from '@/types';
+import { ID, Query } from 'appwrite';
+
+const MESSAGES_PER_PAGE = 50;
+
+interface MessageState {
+    // State
+    messages: Message[];
+    currentChannel: Channel | null;
+    hasMore: boolean;
+    isLoading: boolean;
+    isSending: boolean;
+    error: string | null;
+    typingUsers: Map<string, { username: string; expiresAt: number }>;
+
+    // Actions
+    fetchMessages: (channelId: string, cursor?: string) => Promise<void>;
+    sendMessage: (channelId: string, authorId: string, content: string, replyToId?: string) => Promise<Message>;
+    editMessage: (messageId: string, content: string) => Promise<void>;
+    deleteMessage: (messageId: string) => Promise<void>;
+    addMessage: (message: Message) => void;
+    updateMessage: (message: Message) => void;
+    removeMessage: (messageId: string) => void;
+    setCurrentChannel: (channel: Channel | null) => void;
+    addTypingUser: (userId: string, username: string) => void;
+    removeTypingUser: (userId: string) => void;
+    clearMessages: () => void;
+    clearError: () => void;
+}
+
+export const useMessageStore = create<MessageState>((set, get) => ({
+    messages: [],
+    currentChannel: null,
+    hasMore: true,
+    isLoading: false,
+    isSending: false,
+    error: null,
+    typingUsers: new Map(),
+
+    fetchMessages: async (channelId, cursor) => {
+        set({ isLoading: true, error: null });
+
+        try {
+            const queries = [
+                Query.equal('channelId', channelId),
+                Query.orderDesc('$createdAt'),
+                Query.limit(MESSAGES_PER_PAGE + 1),
+            ];
+
+            if (cursor) {
+                queries.push(Query.cursorBefore(cursor));
+            }
+
+            const response = await databases.listDocuments(
+                DATABASE_ID,
+                COLLECTIONS.MESSAGES,
+                queries
+            );
+
+            const hasMore = response.documents.length > MESSAGES_PER_PAGE;
+            const newMessages = response.documents.slice(0, MESSAGES_PER_PAGE) as unknown as Message[];
+
+            set((state) => ({
+                messages: cursor
+                    ? [...state.messages, ...newMessages]
+                    : newMessages,
+                hasMore,
+                isLoading: false,
+            }));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to fetch messages';
+            set({ error: message, isLoading: false });
+        }
+    },
+
+    sendMessage: async (channelId, authorId, content, replyToId) => {
+        if (!content.trim()) {
+            throw new Error('Message cannot be empty');
+        }
+
+        if (content.length > 4000) {
+            throw new Error('Message exceeds 4000 characters');
+        }
+
+        set({ isSending: true, error: null });
+
+        try {
+            const message = await databases.createDocument(
+                DATABASE_ID,
+                COLLECTIONS.MESSAGES,
+                ID.unique(),
+                {
+                    channelId,
+                    authorId,
+                    content: content.trim(),
+                    type: replyToId ? 'reply' : 'default',
+                    replyToId: replyToId ?? null,
+                    attachments: JSON.stringify([]),
+                    embeds: JSON.stringify([]),
+                    reactions: JSON.stringify([]),
+                    mentionUserIds: JSON.stringify([]),
+                    mentionRoleIds: JSON.stringify([]),
+                    mentionEveryone: false,
+                    isPinned: false,
+                    isEdited: false,
+                    editedAt: null,
+                }
+            ) as unknown as Message;
+
+            set({ isSending: false });
+            return message;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+            set({ error: errorMessage, isSending: false });
+            throw error;
+        }
+    },
+
+    editMessage: async (messageId, content) => {
+        if (!content.trim()) {
+            throw new Error('Message cannot be empty');
+        }
+
+        try {
+            await databases.updateDocument(
+                DATABASE_ID,
+                COLLECTIONS.MESSAGES,
+                messageId,
+                {
+                    content: content.trim(),
+                    isEdited: true,
+                    editedAt: new Date().toISOString(),
+                }
+            );
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to edit message';
+            set({ error: errorMessage });
+            throw error;
+        }
+    },
+
+    deleteMessage: async (messageId) => {
+        try {
+            await databases.deleteDocument(DATABASE_ID, COLLECTIONS.MESSAGES, messageId);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to delete message';
+            set({ error: errorMessage });
+            throw error;
+        }
+    },
+
+    addMessage: (message) => {
+        set((state) => {
+            // Check if message already exists
+            if (state.messages.some((m) => m.$id === message.$id)) {
+                return state;
+            }
+
+            // Add to beginning (newest first)
+            return { messages: [message, ...state.messages] };
+        });
+    },
+
+    updateMessage: (message) => {
+        set((state) => ({
+            messages: state.messages.map((m) =>
+                m.$id === message.$id ? message : m
+            ),
+        }));
+    },
+
+    removeMessage: (messageId) => {
+        set((state) => ({
+            messages: state.messages.filter((m) => m.$id !== messageId),
+        }));
+    },
+
+    setCurrentChannel: (channel) => {
+        set({
+            currentChannel: channel,
+            messages: [],
+            hasMore: true,
+            typingUsers: new Map(),
+        });
+    },
+
+    addTypingUser: (userId, username) => {
+        set((state) => {
+            const newMap = new Map(state.typingUsers);
+            newMap.set(userId, {
+                username,
+                expiresAt: Date.now() + 10000
+            });
+            return { typingUsers: newMap };
+        });
+
+        // Auto-remove after 10 seconds
+        setTimeout(() => {
+            get().removeTypingUser(userId);
+        }, 10000);
+    },
+
+    removeTypingUser: (userId) => {
+        set((state) => {
+            const newMap = new Map(state.typingUsers);
+            newMap.delete(userId);
+            return { typingUsers: newMap };
+        });
+    },
+
+    clearMessages: () => set({
+        messages: [],
+        hasMore: true,
+        currentChannel: null,
+        typingUsers: new Map(),
+    }),
+
+    clearError: () => set({ error: null }),
+}));
+
+// Realtime subscription helper
+export function subscribeToMessages(channelId: string) {
+    const channel = `databases.${DATABASE_ID}.collections.${COLLECTIONS.MESSAGES}.documents`;
+
+    return client.subscribe(channel, (response: { events: string[]; payload: unknown }) => {
+        const payload = response.payload as Message;
+
+        // Only process messages for the current channel
+        if (payload.channelId !== channelId) return;
+
+        const eventType = response.events[0];
+
+        if (eventType.includes('.create')) {
+            useMessageStore.getState().addMessage(payload);
+        } else if (eventType.includes('.update')) {
+            useMessageStore.getState().updateMessage(payload);
+        } else if (eventType.includes('.delete')) {
+            useMessageStore.getState().removeMessage(payload.$id);
+        }
+    });
+}
