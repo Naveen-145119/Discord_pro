@@ -1,5 +1,5 @@
 {
-    "projectId": "discord_pro",
+    "projectId": "discordpro",
     "projectName": "Discord Pro",
     "functions": [
         {
@@ -44,6 +44,34 @@
             "entrypoint": "src/main.js",
             "path": "functions/cleanup-expired",
             "schedule": "*/5 * * * *"
+        },
+        {
+            "functionId": "send-friend-request",
+            "name": "Send Friend Request",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/send-friend-request"
+        },
+        {
+            "functionId": "accept-friend-request",
+            "name": "Accept Friend Request",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/accept-friend-request"
+        },
+        {
+            "functionId": "decline-friend-request",
+            "name": "Decline Friend Request",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/decline-friend-request"
+        },
+        {
+            "functionId": "remove-friend",
+            "name": "Remove Friend",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/remove-friend"
         }
     ],
     "databases": [

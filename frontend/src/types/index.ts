@@ -38,6 +38,28 @@ export interface UserSettings {
 }
 
 // ============================================
+// Friend Types
+// ============================================
+
+export interface Friend extends BaseDocument {
+    userId1: string;
+    userId2: string;
+    // Populated friend user data
+    friend?: User;
+}
+
+export type FriendRequestStatus = 'pending' | 'accepted' | 'declined';
+
+export interface FriendRequest extends BaseDocument {
+    senderId: string;
+    receiverId: string;
+    status: FriendRequestStatus;
+    // Populated user data
+    sender?: User;
+    receiver?: User;
+}
+
+// ============================================
 // Server Types
 // ============================================
 

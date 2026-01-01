@@ -31,6 +31,8 @@ export const COLLECTIONS = {
     TYPING_STATES: 'typing_states',
     DM_CHANNELS: 'dm_channels',
     WEBRTC_SIGNALS: 'webrtc_signals',
+    FRIENDS: 'friends',
+    FRIEND_REQUESTS: 'friend_requests',
 } as const;
 
 // Storage bucket IDs
