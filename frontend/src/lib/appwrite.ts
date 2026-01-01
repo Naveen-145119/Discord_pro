@@ -33,6 +33,7 @@ export const COLLECTIONS = {
     WEBRTC_SIGNALS: 'webrtc_signals',
     FRIENDS: 'friends',
     FRIEND_REQUESTS: 'friend_requests',
+    ACTIVE_CALLS: 'active_calls',
 } as const;
 
 // Storage bucket IDs
