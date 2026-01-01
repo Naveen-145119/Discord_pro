@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { databases, client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
-import { ID, Permission, Role } from 'appwrite';
+import { databases, functions, client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+
 import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
 import type { User } from '@/types';
@@ -66,27 +66,23 @@ export function useCall(): UseCallReturn {
         if (!user?.$id) throw new Error('Not authenticated');
 
         try {
-            // Create call document
-            const call = await databases.createDocument(
-                DATABASE_ID,
-                COLLECTIONS.ACTIVE_CALLS,
-                ID.unique(),
-                {
-                    callerId: user.$id,
+            // Create call document via server function to handle permissions
+            const execution = await functions.createExecution(
+                'create-call',
+                JSON.stringify({
                     receiverId: friendId,
                     channelId,
-                    callType,
-                    status: 'ringing'
-                },
-                [
-                    Permission.read(Role.user(user.$id)),
-                    Permission.read(Role.user(friendId)),
-                    Permission.update(Role.user(user.$id)),
-                    Permission.update(Role.user(friendId)),
-                    Permission.delete(Role.user(user.$id)),
-                    Permission.delete(Role.user(friendId)),
-                ]
+                    callType
+                })
             );
+
+            const response = JSON.parse(execution.responseBody);
+
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to create call');
+            }
+
+            const call = response.data;
 
             setCurrentCall(call as unknown as ActiveCall);
 
