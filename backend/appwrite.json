@@ -72,6 +72,13 @@
             "runtime": "node-22",
             "entrypoint": "src/main.js",
             "path": "functions/remove-friend"
+        },
+        {
+            "functionId": "create-dm-channel",
+            "name": "Create DM Channel",
+            "runtime": "node-22",
+            "entrypoint": "src/main.js",
+            "path": "functions/create-dm-channel"
         }
     ],
     "databases": [
