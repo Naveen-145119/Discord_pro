@@ -105,6 +105,63 @@ export function useWebRTC({
     }, [channelId, userId]);
 
     /**
+     * Setup peer connection event handlers
+     */
+    const setupPeerConnection = useCallback((
+        pc: RTCPeerConnection,
+        peerId: string
+    ) => {
+        // ICE candidate
+        pc.onicecandidate = async (event) => {
+            if (event.candidate) {
+                await sendSignal(peerId, 'ice-candidate', {
+                    candidate: JSON.stringify(event.candidate.toJSON()),
+                });
+            }
+        };
+
+        // Connection state
+        pc.onconnectionstatechange = () => {
+            const state = pc.connectionState;
+            if (state === 'connected') {
+                setConnectionState('connected');
+            } else if (state === 'failed' || state === 'disconnected') {
+                setConnectionState('failed');
+            }
+        };
+
+        // Remote stream
+        pc.ontrack = (event) => {
+            const [stream] = event.streams;
+
+            setParticipants((prev) => {
+                const updated = new Map(prev);
+                const existing = updated.get(peerId);
+
+                updated.set(peerId, {
+                    odId: peerId,
+                    displayName: existing?.displayName || 'Unknown',
+                    isMuted: existing?.isMuted ?? false,
+                    isDeafened: existing?.isDeafened ?? false,
+                    isVideoOn: existing?.isVideoOn ?? false,
+                    isScreenSharing: existing?.isScreenSharing ?? false,
+                    isSpeaking: false,
+                    stream,
+                });
+
+                return updated;
+            });
+        };
+
+        // Add local tracks
+        if (localStream) {
+            localStream.getTracks().forEach((track) => {
+                pc.addTrack(track, localStream);
+            });
+        }
+    }, [sendSignal, localStream]);
+
+    /**
      * Handle incoming signaling message
      */
     const handleSignal = useCallback(async (signal: WebRTCSignal) => {
@@ -166,64 +223,9 @@ export function useWebRTC({
         } catch (err) {
             console.error('Error handling signal:', err);
         }
-    }, [userId, sendSignal]);
+    }, [userId, sendSignal, setupPeerConnection]);
 
-    /**
-     * Setup peer connection event handlers
-     */
-    const setupPeerConnection = useCallback((
-        pc: RTCPeerConnection,
-        peerId: string
-    ) => {
-        // ICE candidate
-        pc.onicecandidate = async (event) => {
-            if (event.candidate) {
-                await sendSignal(peerId, 'ice-candidate', {
-                    candidate: JSON.stringify(event.candidate.toJSON()),
-                });
-            }
-        };
 
-        // Connection state
-        pc.onconnectionstatechange = () => {
-            const state = pc.connectionState;
-            if (state === 'connected') {
-                setConnectionState('connected');
-            } else if (state === 'failed' || state === 'disconnected') {
-                setConnectionState('failed');
-            }
-        };
-
-        // Remote stream
-        pc.ontrack = (event) => {
-            const [stream] = event.streams;
-
-            setParticipants((prev) => {
-                const updated = new Map(prev);
-                const existing = updated.get(peerId);
-
-                updated.set(peerId, {
-                    odId: peerId,
-                    displayName: existing?.displayName || 'Unknown',
-                    isMuted: existing?.isMuted ?? false,
-                    isDeafened: existing?.isDeafened ?? false,
-                    isVideoOn: existing?.isVideoOn ?? false,
-                    isScreenSharing: existing?.isScreenSharing ?? false,
-                    isSpeaking: false,
-                    stream,
-                });
-
-                return updated;
-            });
-        };
-
-        // Add local tracks
-        if (localStream) {
-            localStream.getTracks().forEach((track) => {
-                pc.addTrack(track, localStream);
-            });
-        }
-    }, [sendSignal, localStream]);
 
     /**
      * Join voice channel
@@ -384,6 +386,17 @@ export function useWebRTC({
     }, [localStream, isVideoOn]);
 
     /**
+     * Stop screen sharing
+     */
+    const stopScreenShare = useCallback(() => {
+        if (!screenStream) return;
+
+        screenStream.getTracks().forEach((track) => track.stop());
+        setScreenStream(null);
+        setIsScreenSharing(false);
+    }, [screenStream]);
+
+    /**
      * Start screen sharing (60fps 1080p)
      */
     const startScreenShare = useCallback(async () => {
@@ -412,18 +425,7 @@ export function useWebRTC({
             const message = err instanceof Error ? err.message : 'Failed to share screen';
             setError(message);
         }
-    }, [isScreenSharing]);
-
-    /**
-     * Stop screen sharing
-     */
-    const stopScreenShare = useCallback(() => {
-        if (!screenStream) return;
-
-        screenStream.getTracks().forEach((track) => track.stop());
-        setScreenStream(null);
-        setIsScreenSharing(false);
-    }, [screenStream]);
+    }, [isScreenSharing, stopScreenShare]);
 
     // Cleanup on unmount
     useEffect(() => {

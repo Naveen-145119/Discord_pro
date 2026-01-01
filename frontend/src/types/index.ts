@@ -145,10 +145,14 @@ export interface Message extends BaseDocument {
     type: MessageType;
     replyToId: string | null;
     attachments: Attachment[];
+    metadata?: string; // Contains nested JSON for embeds, reactions, mentionRoleIds
+
+    // Derived from metadata
     embeds: Embed[];
     reactions: Reaction[];
-    mentionUserIds: string[];
     mentionRoleIds: string[];
+
+    mentionUserIds: string[];
     mentionEveryone: boolean;
     isPinned: boolean;
     isEdited: boolean;

@@ -60,7 +60,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             );
 
             const hasMore = response.documents.length > MESSAGES_PER_PAGE;
-            const newMessages = response.documents.slice(0, MESSAGES_PER_PAGE) as unknown as Message[];
+            const rawMessages = response.documents.slice(0, MESSAGES_PER_PAGE) as unknown as Message[];
+
+            // Parse metadata for each message
+            const newMessages = rawMessages.map(msg => {
+                if (msg.metadata) {
+                    try {
+                        const { embeds, reactions, mentionRoleIds } = JSON.parse(msg.metadata);
+                        return { ...msg, embeds, reactions, mentionRoleIds };
+                    } catch {
+                        // Fallback defaults if parsing fails
+                        return { ...msg, embeds: [], reactions: [], mentionRoleIds: [] };
+                    }
+                }
+                return { ...msg, embeds: [], reactions: [], mentionRoleIds: [] };
+            });
 
             set((state) => ({
                 messages: cursor
@@ -98,10 +112,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                     type: replyToId ? 'reply' : 'default',
                     replyToId: replyToId ?? null,
                     attachments: JSON.stringify([]),
-                    embeds: JSON.stringify([]),
-                    reactions: JSON.stringify([]),
+                    metadata: JSON.stringify({
+                        embeds: [],
+                        reactions: [],
+                        mentionRoleIds: []
+                    }),
                     mentionUserIds: JSON.stringify([]),
-                    mentionRoleIds: JSON.stringify([]),
                     mentionEveryone: false,
                     isPinned: false,
                     isEdited: false,

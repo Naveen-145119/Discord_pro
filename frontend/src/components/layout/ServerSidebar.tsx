@@ -67,12 +67,16 @@ export function ServerSidebar() {
                                     src={server.iconUrl}
                                     alt={server.name}
                                     className="w-full h-full object-cover rounded-[inherit]"
+                                    onError={(e) => {
+                                        // Fallback to initials if image fails to load
+                                        e.currentTarget.style.display = 'none';
+                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                    }}
                                 />
-                            ) : (
-                                <span className={`text-sm font-medium ${isActive ? 'text-white' : 'text-interactive-normal group-hover:text-white'}`}>
-                                    {getInitials(server.name)}
-                                </span>
-                            )}
+                            ) : null}
+                            <span className={`text-sm font-medium ${server.iconUrl ? 'hidden' : ''} ${isActive ? 'text-white' : 'text-interactive-normal group-hover:text-white'}`}>
+                                {getInitials(server.name)}
+                            </span>
 
                             {/* Active indicator */}
                             {isActive && (

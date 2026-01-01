@@ -68,7 +68,22 @@
         {
             "bucketId": "attachments",
             "name": "Attachments",
-            "maximumFileSize": 26214400
+            "maximumFileSize": 26214400,
+            "allowedFileExtensions": [
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+                "webp",
+                "mp4",
+                "webm",
+                "mp3",
+                "ogg",
+                "wav",
+                "pdf",
+                "txt",
+                "zip"
+            ]
         },
         {
             "bucketId": "banners",

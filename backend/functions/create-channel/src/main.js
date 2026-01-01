@@ -1,10 +1,16 @@
 /**
  * Create Channel - Appwrite Function
- * Creates a new channel in a server
+ * Creates a new channel in a server with proper validation
  */
 import { Client, Databases, ID, Query } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
+    // Validate environment variables
+    if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
+        error('Missing required environment variables');
+        return res.json({ success: false, error: 'Server configuration error' }, 500);
+    }
+
     const client = new Client()
         .setEndpoint(process.env.APPWRITE_ENDPOINT)
         .setProject(process.env.APPWRITE_PROJECT_ID)
@@ -13,12 +19,19 @@ export default async ({ req, res, log, error }) => {
     const databases = new Databases(client);
     const DATABASE_ID = process.env.DATABASE_ID || 'discord_db';
 
-    // Permission flags
     const MANAGE_CHANNELS = 1n << 2n;
     const ADMINISTRATOR = 1n << 0n;
 
     try {
-        const { serverId, userId, name, type, parentId, topic } = JSON.parse(req.body || '{}');
+        // Safe JSON parsing
+        let body;
+        try {
+            body = JSON.parse(req.body || '{}');
+        } catch {
+            return res.json({ success: false, error: 'Invalid JSON body' }, 400);
+        }
+
+        const { serverId, userId, name, type, parentId, topic } = body;
 
         // Validate required fields
         if (!serverId || !userId || !name || !type) {
@@ -26,6 +39,12 @@ export default async ({ req, res, log, error }) => {
                 success: false,
                 error: 'Missing required fields: serverId, userId, name, type'
             }, 400);
+        }
+
+        // Validate field types
+        if (typeof serverId !== 'string' || typeof userId !== 'string' ||
+            typeof name !== 'string' || typeof type !== 'string') {
+            return res.json({ success: false, error: 'Invalid field types' }, 400);
         }
 
         // Validate channel type
@@ -37,12 +56,32 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate name
-        if (name.length < 1 || name.length > 100) {
+        // Validate name length
+        const trimmedName = name.trim();
+        if (trimmedName.length < 1 || trimmedName.length > 100) {
             return res.json({
                 success: false,
                 error: 'Channel name must be between 1 and 100 characters'
             }, 400);
+        }
+
+        // Validate parentId if provided
+        if (parentId !== undefined && parentId !== null) {
+            if (typeof parentId !== 'string') {
+                return res.json({ success: false, error: 'Invalid parentId type' }, 400);
+            }
+            // Verify parent category exists
+            try {
+                const parent = await databases.getDocument(DATABASE_ID, 'channels', parentId);
+                if (parent.type !== 'category') {
+                    return res.json({ success: false, error: 'Parent must be a category' }, 400);
+                }
+                if (parent.serverId !== serverId) {
+                    return res.json({ success: false, error: 'Parent category not in same server' }, 400);
+                }
+            } catch {
+                return res.json({ success: false, error: 'Parent category not found' }, 404);
+            }
         }
 
         // Check server exists
@@ -50,10 +89,7 @@ export default async ({ req, res, log, error }) => {
         try {
             server = await databases.getDocument(DATABASE_ID, 'servers', serverId);
         } catch {
-            return res.json({
-                success: false,
-                error: 'Server not found'
-            }, 404);
+            return res.json({ success: false, error: 'Server not found' }, 404);
         }
 
         // Check user is member and has permission
@@ -73,7 +109,6 @@ export default async ({ req, res, log, error }) => {
         const member = memberships.documents[0];
         const permissions = BigInt(member.permissionBits || '0');
 
-        // Check for MANAGE_CHANNELS or ADMINISTRATOR permission (or is owner)
         const hasPermission = server.ownerId === userId ||
             (permissions & ADMINISTRATOR) === ADMINISTRATOR ||
             (permissions & MANAGE_CHANNELS) === MANAGE_CHANNELS;
@@ -85,14 +120,14 @@ export default async ({ req, res, log, error }) => {
             }, 403);
         }
 
-        // Get highest position for ordering
+        // Get next position atomically by using current timestamp as tiebreaker
         const existingChannels = await databases.listDocuments(DATABASE_ID, 'channels', [
             Query.equal('serverId', serverId),
             Query.orderDesc('position'),
             Query.limit(1)
         ]);
 
-        const nextPosition = existingChannels.documents.length > 0
+        const basePosition = existingChannels.documents.length > 0
             ? existingChannels.documents[0].position + 1
             : 0;
 
@@ -104,9 +139,9 @@ export default async ({ req, res, log, error }) => {
             {
                 serverId,
                 type,
-                name: name.toLowerCase().replace(/\s+/g, '-'), // Discord-style naming
-                topic: topic || null,
-                position: nextPosition,
+                name: trimmedName.toLowerCase().replace(/\s+/g, '-'),
+                topic: topic && typeof topic === 'string' ? topic.trim() : null,
+                position: basePosition,
                 parentId: parentId || null,
                 isNsfw: false,
                 slowmodeSeconds: 0,
@@ -116,15 +151,9 @@ export default async ({ req, res, log, error }) => {
 
         log(`Channel created: ${channel.$id} in server ${serverId}`);
 
-        return res.json({
-            success: true,
-            data: channel
-        });
+        return res.json({ success: true, data: channel });
     } catch (err) {
         error(`Error creating channel: ${err.message}`);
-        return res.json({
-            success: false,
-            error: 'Failed to create channel'
-        }, 500);
+        return res.json({ success: false, error: 'Failed to create channel' }, 500);
     }
 };

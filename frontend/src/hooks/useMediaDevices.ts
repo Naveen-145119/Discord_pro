@@ -80,20 +80,25 @@ export function useMediaDevices(): UseMediaDevicesReturn {
             setAudioOutputs(outputs);
             setVideoInputs(videos);
 
-            // Auto-select first device if none selected
-            if (!selectedAudioInput && inputs.length > 0) {
-                setSelectedAudioInput(inputs[0].deviceId);
-            }
-            if (!selectedAudioOutput && outputs.length > 0) {
-                setSelectedAudioOutput(outputs[0].deviceId);
-            }
-            if (!selectedVideoInput && videos.length > 0) {
-                setSelectedVideoInput(videos[0].deviceId);
-            }
+            // Auto-select defaults using functional updates to avoid dependency cycles and stale state
+            setSelectedAudioInput(prev => {
+                if (prev) return prev;
+                return inputs.length > 0 ? inputs[0].deviceId : null;
+            });
+
+            setSelectedAudioOutput(prev => {
+                if (prev) return prev;
+                return outputs.length > 0 ? outputs[0].deviceId : null;
+            });
+
+            setSelectedVideoInput(prev => {
+                if (prev) return prev;
+                return videos.length > 0 ? videos[0].deviceId : null;
+            });
         } catch (error) {
             console.error('Failed to enumerate devices:', error);
         }
-    }, [selectedAudioInput, selectedAudioOutput, selectedVideoInput]);
+    }, []);
 
     /**
      * Request camera/microphone permissions
@@ -115,7 +120,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
             await refreshDevices();
 
             return true;
-        } catch (error) {
+        } catch {
             // Try audio only
             try {
                 const audioStream = await navigator.mediaDevices.getUserMedia({
@@ -156,6 +161,7 @@ export function useMediaDevices(): UseMediaDevicesReturn {
 
     // Initial device enumeration
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         refreshDevices();
 
         // Listen for device changes

@@ -1,10 +1,16 @@
 /**
  * Create Server - Appwrite Function
- * Creates a new server with default channel and @everyone role
+ * Creates a new server with default channel, @everyone role, and owner as admin
  */
 import { Client, Databases, ID } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
+    // Validate environment variables
+    if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
+        error('Missing required environment variables');
+        return res.json({ success: false, error: 'Server configuration error' }, 500);
+    }
+
     const client = new Client()
         .setEndpoint(process.env.APPWRITE_ENDPOINT)
         .setProject(process.env.APPWRITE_PROJECT_ID)
@@ -25,8 +31,19 @@ export default async ({ req, res, log, error }) => {
         (1n << 32n)   // CREATE_INVITE
     ).toString();
 
+    // Owner gets ADMINISTRATOR permission
+    const OWNER_PERMISSIONS = (1n << 0n).toString(); // ADMINISTRATOR bit
+
     try {
-        const { name, ownerId, description, isPublic } = JSON.parse(req.body || '{}');
+        // Safe JSON parsing
+        let body;
+        try {
+            body = JSON.parse(req.body || '{}');
+        } catch {
+            return res.json({ success: false, error: 'Invalid JSON body' }, 400);
+        }
+
+        const { name, ownerId, description, isPublic } = body;
 
         // Validate required fields
         if (!name || !ownerId) {
@@ -36,8 +53,14 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
+        // Validate field types
+        if (typeof name !== 'string' || typeof ownerId !== 'string') {
+            return res.json({ success: false, error: 'Invalid field types' }, 400);
+        }
+
         // Validate name length
-        if (name.length < 2 || name.length > 100) {
+        const trimmedName = name.trim();
+        if (trimmedName.length < 2 || trimmedName.length > 100) {
             return res.json({
                 success: false,
                 error: 'Server name must be between 2 and 100 characters'
@@ -50,12 +73,12 @@ export default async ({ req, res, log, error }) => {
             'servers',
             ID.unique(),
             {
-                name,
-                description: description || null,
+                name: trimmedName,
+                description: description && typeof description === 'string' ? description.trim() : null,
                 iconUrl: null,
                 bannerUrl: null,
                 ownerId,
-                isPublic: isPublic || false,
+                isPublic: isPublic === true,
                 verificationLevel: 0,
                 memberCount: 1,
                 defaultChannelId: null
@@ -106,7 +129,7 @@ export default async ({ req, res, log, error }) => {
             { defaultChannelId: generalChannel.$id }
         );
 
-        // Add owner as first member
+        // Add owner as first member WITH ADMINISTRATOR permissions
         await databases.createDocument(
             DATABASE_ID,
             'server_members',
@@ -117,7 +140,7 @@ export default async ({ req, res, log, error }) => {
                 nickname: null,
                 roleIds: JSON.stringify([]),
                 joinedAt: new Date().toISOString(),
-                permissionBits: DEFAULT_PERMISSIONS
+                permissionBits: OWNER_PERMISSIONS // Owner gets admin, not default
             }
         );
 
@@ -153,9 +176,6 @@ export default async ({ req, res, log, error }) => {
         });
     } catch (err) {
         error(`Error creating server: ${err.message}`);
-        return res.json({
-            success: false,
-            error: 'Failed to create server'
-        }, 500);
+        return res.json({ success: false, error: 'Failed to create server' }, 500);
     }
 };
