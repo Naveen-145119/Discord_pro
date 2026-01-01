@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useFriends } from '@/hooks/useFriends';
+import { useDMs } from '@/hooks/useDMs';
 import { AddFriendModal } from '@/components/modals/AddFriendModal';
 import {
     Users,
@@ -21,6 +23,7 @@ type FriendTab = 'all' | 'pending' | 'online';
  * Home page - shows DMs and friend list with full friend management
  */
 export function HomePage() {
+    const navigate = useNavigate();
     const { user, logout } = useAuthStore();
     const {
         friends,
@@ -32,6 +35,7 @@ export function HomePage() {
         declineRequest,
         removeFriend
     } = useFriends();
+    const { dmChannels, createOrGetDM } = useDMs();
 
     const [activeTab, setActiveTab] = useState<FriendTab>('all');
     const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
@@ -67,6 +71,18 @@ export function HomePage() {
         }
     };
 
+    const handleMessage = async (friendId: string) => {
+        setActionLoading(friendId);
+        try {
+            const dm = await createOrGetDM(friendId);
+            navigate(`/dm/${dm.$id}`);
+        } catch (err) {
+            console.error('Failed to open DM:', err);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
     return (
         <div className="flex flex-1 bg-background-primary">
             {/* DM Sidebar */}
@@ -96,11 +112,33 @@ export function HomePage() {
                     </button>
                 </div>
 
-                {/* DM List - Empty state */}
-                <div className="flex-1 px-2 py-2">
-                    <p className="text-center text-text-muted text-sm py-8">
-                        No direct messages yet
-                    </p>
+                {/* DM List */}
+                <div className="flex-1 px-2 py-2 overflow-y-auto">
+                    {dmChannels.length === 0 ? (
+                        <p className="text-center text-text-muted text-sm py-8">
+                            No direct messages yet
+                        </p>
+                    ) : (
+                        <div className="space-y-0.5">
+                            {dmChannels.map((dm) => (
+                                <button
+                                    key={dm.$id}
+                                    onClick={() => navigate(`/dm/${dm.$id}`)}
+                                    className="channel-item w-full"
+                                >
+                                    <div className="relative">
+                                        <div className="avatar w-8 h-8 bg-discord-primary">
+                                            <span className="text-xs font-medium text-white">
+                                                {dm.friend?.displayName?.charAt(0) || '?'}
+                                            </span>
+                                        </div>
+                                        <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background-secondary ${dm.friend?.status === 'online' ? 'bg-green-500' : dm.friend?.status === 'idle' ? 'bg-yellow-500' : 'bg-gray-500'}`} />
+                                    </div>
+                                    <span className="truncate">{dm.friend?.displayName || 'Unknown'}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* User panel */}
@@ -152,8 +190,8 @@ export function HomePage() {
                         <button
                             onClick={() => setActiveTab('online')}
                             className={`px-2 py-1 rounded text-sm font-medium transition-colors ${activeTab === 'online'
-                                    ? 'bg-background-modifier-selected text-text-heading'
-                                    : 'text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover'
+                                ? 'bg-background-modifier-selected text-text-heading'
+                                : 'text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover'
                                 }`}
                         >
                             Online
@@ -161,8 +199,8 @@ export function HomePage() {
                         <button
                             onClick={() => setActiveTab('all')}
                             className={`px-2 py-1 rounded text-sm font-medium transition-colors ${activeTab === 'all'
-                                    ? 'bg-background-modifier-selected text-text-heading'
-                                    : 'text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover'
+                                ? 'bg-background-modifier-selected text-text-heading'
+                                : 'text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover'
                                 }`}
                         >
                             All
@@ -170,8 +208,8 @@ export function HomePage() {
                         <button
                             onClick={() => setActiveTab('pending')}
                             className={`px-2 py-1 rounded text-sm font-medium transition-colors ${activeTab === 'pending'
-                                    ? 'bg-background-modifier-selected text-text-heading'
-                                    : 'text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover'
+                                ? 'bg-background-modifier-selected text-text-heading'
+                                : 'text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover'
                                 }`}
                         >
                             Pending
@@ -218,6 +256,7 @@ export function HomePage() {
                                                     key={friend.$id}
                                                     friend={friend}
                                                     onRemove={() => handleRemove(friend.$id)}
+                                                    onMessage={() => handleMessage(friend.$id)}
                                                     isLoading={actionLoading === friend.$id}
                                                 />
                                             ))}
@@ -249,6 +288,7 @@ export function HomePage() {
                                                     key={friend.$id}
                                                     friend={friend}
                                                     onRemove={() => handleRemove(friend.$id)}
+                                                    onMessage={() => handleMessage(friend.$id)}
                                                     isLoading={actionLoading === friend.$id}
                                                 />
                                             ))}
@@ -384,10 +424,11 @@ interface FriendItemProps {
         status: string;
     };
     onRemove: () => void;
+    onMessage: () => void;
     isLoading: boolean;
 }
 
-function FriendItem({ friend, onRemove, isLoading }: FriendItemProps) {
+function FriendItem({ friend, onRemove, onMessage, isLoading }: FriendItemProps) {
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'online': return 'bg-green-500';
@@ -413,7 +454,9 @@ function FriendItem({ friend, onRemove, isLoading }: FriendItemProps) {
             </div>
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                    className="p-2 rounded-full bg-background-tertiary hover:bg-background-modifier-active text-interactive-normal hover:text-interactive-hover transition-colors"
+                    onClick={onMessage}
+                    disabled={isLoading}
+                    className="p-2 rounded-full bg-background-tertiary hover:bg-background-modifier-active text-interactive-normal hover:text-interactive-hover transition-colors disabled:opacity-50"
                     title="Message"
                 >
                     <MessageCircle size={16} />
