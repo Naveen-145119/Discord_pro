@@ -10,6 +10,7 @@ import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { HomePage } from '@/pages/HomePage';
 import { ServerPage } from '@/pages/ServerPage';
+import { DMPage } from '@/pages/DMPage';
 
 // Loading screen
 function LoadingScreen() {
@@ -95,6 +96,7 @@ export default function App() {
           }
         >
           <Route index element={<HomePage />} />
+          <Route path="dm/:channelId" element={<DMPage />} />
           <Route path="servers/:serverId/*" element={<ServerPage />} />
         </Route>
 
