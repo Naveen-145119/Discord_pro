@@ -9,16 +9,15 @@ import {
     Gift,
     Sticker,
     Smile,
-    SendHorizontal,
-    MonitorUp
+    SendHorizontal
 } from 'lucide-react';
 import { useMessageStore, subscribeToMessages } from '@/stores/messageStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useDMs } from '@/hooks/useDMs';
+import { useCallContext } from '@/providers/CallProvider';
 import { formatMessageTime } from '@/lib/utils';
 import type { Message as MessageType, User } from '@/types';
 import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
-// Query import removed - not currently used
 
 /**
  * DM Page - Direct message conversation view with calling support
@@ -28,6 +27,7 @@ export function DMPage() {
     const navigate = useNavigate();
     const { user } = useAuthStore();
     const { dmChannels } = useDMs();
+    const { startCall: startGlobalCall } = useCallContext();
     const {
         messages,
         hasMore,
@@ -40,8 +40,6 @@ export function DMPage() {
 
     const [inputValue, setInputValue] = useState('');
     const [friend, setFriend] = useState<User | null>(null);
-    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
-    const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -129,10 +127,10 @@ export function DMPage() {
         }
     };
 
-    // Start call
-    const startCall = (type: 'voice' | 'video') => {
-        setCallType(type);
-        setIsCallModalOpen(true);
+    // Start call using global CallProvider
+    const handleStartCall = (type: 'voice' | 'video') => {
+        if (!channelId || !friend) return;
+        startGlobalCall(friend.$id, channelId, type, friend);
     };
 
     const getStatusColor = (status?: string) => {
@@ -188,14 +186,14 @@ export function DMPage() {
                 {/* Call buttons */}
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={() => startCall('voice')}
+                        onClick={() => handleStartCall('voice')}
                         className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
                         title="Start Voice Call"
                     >
                         <Phone size={20} />
                     </button>
                     <button
-                        onClick={() => startCall('video')}
+                        onClick={() => handleStartCall('video')}
                         className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
                         title="Start Video Call"
                     >
@@ -237,14 +235,14 @@ export function DMPage() {
                         </p>
                         <div className="flex gap-2">
                             <button
-                                onClick={() => startCall('voice')}
+                                onClick={() => handleStartCall('voice')}
                                 className="flex items-center gap-2 px-4 py-2 bg-background-secondary hover:bg-background-modifier-hover rounded-md text-text-normal transition-colors"
                             >
                                 <Phone size={16} />
                                 Voice Call
                             </button>
                             <button
-                                onClick={() => startCall('video')}
+                                onClick={() => handleStartCall('video')}
                                 className="flex items-center gap-2 px-4 py-2 bg-background-secondary hover:bg-background-modifier-hover rounded-md text-text-normal transition-colors"
                             >
                                 <Video size={16} />
@@ -311,19 +309,6 @@ export function DMPage() {
                     </div>
                 </div>
             </div>
-
-            {/* Call Modal */}
-            {isCallModalOpen && callType && (
-                <DMCallModal
-                    channelId={channelId!}
-                    friend={friend}
-                    callType={callType}
-                    onClose={() => {
-                        setIsCallModalOpen(false);
-                        setCallType(null);
-                    }}
-                />
-            )}
         </div>
     );
 }
@@ -376,165 +361,4 @@ function DMMessageItem({
 }
 
 // DM Call Modal component
-function DMCallModal({
-    channelId: _channelId,
-    friend,
-    callType,
-    onClose
-}: {
-    channelId: string;
-    friend: User;
-    callType: 'voice' | 'video';
-    onClose: () => void;
-}) {
-    const { user: _user } = useAuthStore();
-    const [isConnecting, setIsConnecting] = useState(true);
-    const [isMuted, setIsMuted] = useState(false);
-    const [isVideoOn, setIsVideoOn] = useState(callType === 'video');
-    const [isScreenSharing, setIsScreenSharing] = useState(false);
-    const localVideoRef = useRef<HTMLVideoElement>(null);
-    const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-    // Simulated connection for now - will integrate with useWebRTC
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setIsConnecting(false);
-        }, 2000);
-        return () => clearTimeout(timer);
-    }, []);
-
-    const getStatusColor = (status?: string) => {
-        switch (status) {
-            case 'online': return 'bg-status-online';
-            case 'idle': return 'bg-status-idle';
-            case 'dnd': return 'bg-status-dnd';
-            default: return 'bg-status-offline';
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-            <div className="bg-background-secondary rounded-lg w-full max-w-4xl mx-4 overflow-hidden">
-                {/* Header */}
-                <div className="p-4 border-b border-background-tertiary flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
-                            <div className="w-10 h-10 rounded-full bg-discord-primary flex items-center justify-center">
-                                {friend.avatarUrl ? (
-                                    <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                                ) : (
-                                    <span className="text-lg font-medium text-white">
-                                        {friend.displayName?.charAt(0) || '?'}
-                                    </span>
-                                )}
-                            </div>
-                            <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background-secondary ${getStatusColor(friend.status)}`} />
-                        </div>
-                        <div>
-                            <h3 className="font-semibold text-text-heading">{friend.displayName}</h3>
-                            <p className="text-sm text-text-muted">
-                                {isConnecting ? 'Connecting...' : callType === 'video' ? 'Video Call' : 'Voice Call'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Video area */}
-                <div className="aspect-video bg-background-primary relative">
-                    {isConnecting ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <div className="w-24 h-24 rounded-full bg-discord-primary flex items-center justify-center mb-4">
-                                {friend.avatarUrl ? (
-                                    <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                                ) : (
-                                    <span className="text-3xl font-medium text-white">
-                                        {friend.displayName?.charAt(0) || '?'}
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-text-muted animate-pulse">Calling {friend.displayName}...</p>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Remote video */}
-                            <video
-                                ref={remoteVideoRef}
-                                autoPlay
-                                playsInline
-                                className="w-full h-full object-cover"
-                            />
-
-                            {/* Local video (picture-in-picture) */}
-                            {isVideoOn && (
-                                <div className="absolute bottom-4 right-4 w-48 aspect-video bg-background-tertiary rounded-lg overflow-hidden shadow-lg">
-                                    <video
-                                        ref={localVideoRef}
-                                        autoPlay
-                                        playsInline
-                                        muted
-                                        className="w-full h-full object-cover"
-                                    />
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
-
-                {/* Controls */}
-                <div className="p-4 flex items-center justify-center gap-4">
-                    <button
-                        onClick={() => setIsMuted(!isMuted)}
-                        className={`p-4 rounded-full transition-colors ${isMuted
-                            ? 'bg-red-500 text-white'
-                            : 'bg-background-tertiary text-text-normal hover:bg-background-modifier-hover'
-                            }`}
-                        title={isMuted ? 'Unmute' : 'Mute'}
-                    >
-                        {isMuted ? (
-                            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z" />
-                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                                <path d="M3.41 2L2 3.41l18 18L21.41 20z" fill="currentColor" />
-                            </svg>
-                        ) : (
-                            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                            </svg>
-                        )}
-                    </button>
-
-                    <button
-                        onClick={() => setIsVideoOn(!isVideoOn)}
-                        className={`p-4 rounded-full transition-colors ${!isVideoOn
-                            ? 'bg-red-500 text-white'
-                            : 'bg-background-tertiary text-text-normal hover:bg-background-modifier-hover'
-                            }`}
-                        title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
-                    >
-                        <Video size={24} />
-                    </button>
-
-                    <button
-                        onClick={() => setIsScreenSharing(!isScreenSharing)}
-                        className={`p-4 rounded-full transition-colors ${isScreenSharing
-                            ? 'bg-green-500 text-white'
-                            : 'bg-background-tertiary text-text-normal hover:bg-background-modifier-hover'
-                            }`}
-                        title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen (1080p 60fps)'}
-                    >
-                        <MonitorUp size={24} />
-                    </button>
-
-                    <button
-                        onClick={onClose}
-                        className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
-                        title="End Call"
-                    >
-                        <Phone size={24} className="rotate-[135deg]" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}

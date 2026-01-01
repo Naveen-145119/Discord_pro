@@ -5,6 +5,9 @@ import { useAuthStore } from '@/stores/authStore';
 // Layout
 import { MainLayout } from '@/components/layout/MainLayout';
 
+// Providers
+import { CallProvider } from '@/providers/CallProvider';
+
 // Pages
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
@@ -91,7 +94,9 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <MainLayout />
+              <CallProvider>
+                <MainLayout />
+              </CallProvider>
             </ProtectedRoute>
           }
         >
