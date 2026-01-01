@@ -47,31 +47,28 @@ export default async ({ req, res, log, error }) => {
 
         // Sort participant IDs for consistent lookup (smaller ID first)
         const participantIds = [userId, friendId].sort();
+        const participantIdsString = JSON.stringify(participantIds);
 
         // Check if DM channel already exists between these users
+        // Since participantIds is stored as a JSON string, we search for the exact string
         const existingDMs = await databases.listDocuments(DATABASE_ID, COLLECTION_DM_CHANNELS, [
-            Query.contains('participantIds', participantIds[0]),
-            Query.limit(100)
+            Query.equal('participantIds', participantIdsString),
+            Query.limit(1)
         ]);
 
-        // Find exact match (both participants)
-        const existingDM = existingDMs.documents.find(dm => {
-            const ids = dm.participantIds;
-            return ids.length === 2 &&
-                ids.includes(participantIds[0]) &&
-                ids.includes(participantIds[1]);
-        });
-
-        if (existingDM) {
+        if (existingDMs.documents.length > 0) {
+            const existingDM = existingDMs.documents[0];
             log(`DM channel already exists: ${existingDM.$id}`);
 
             // Fetch friend's user data
             const friendData = await databases.getDocument(DATABASE_ID, COLLECTION_USERS, friendId);
 
+            // Parse participantIds back to array for response
             return res.json({
                 success: true,
                 data: {
                     ...existingDM,
+                    participantIds: JSON.parse(existingDM.participantIds),
                     friend: {
                         $id: friendData.$id,
                         username: friendData.username,
@@ -90,7 +87,7 @@ export default async ({ req, res, log, error }) => {
             COLLECTION_DM_CHANNELS,
             ID.unique(),
             {
-                participantIds: participantIds,
+                participantIds: participantIdsString,
                 lastMessageAt: null,
                 lastMessagePreview: null
             }
@@ -105,6 +102,7 @@ export default async ({ req, res, log, error }) => {
             success: true,
             data: {
                 ...dmChannel,
+                participantIds: participantIds, // Already an array here
                 friend: {
                     $id: friendData.$id,
                     username: friendData.username,

@@ -45,9 +45,13 @@ export function useDMs(): UseDMsReturn {
             const channels = result.documents as unknown as DMChannel[];
 
             // Get all friend IDs (the other participant)
+            // participantIds is stored as JSON string in Appwrite, so parse it
             const friendIds = new Set<string>();
             channels.forEach(channel => {
-                channel.participantIds.forEach(id => {
+                const participants = typeof channel.participantIds === 'string'
+                    ? JSON.parse(channel.participantIds)
+                    : channel.participantIds;
+                participants.forEach((id: string) => {
                     if (id !== user.$id) {
                         friendIds.add(id);
                     }
@@ -66,10 +70,14 @@ export function useDMs(): UseDMsReturn {
 
             // Combine channels with friend data
             const channelsWithFriends: DMChannelWithFriend[] = channels.map(channel => {
-                const friendId = channel.participantIds.find(id => id !== user.$id)!;
+                const participants = typeof channel.participantIds === 'string'
+                    ? JSON.parse(channel.participantIds)
+                    : channel.participantIds;
+                const friendId = participants.find((id: string) => id !== user.$id)!;
                 const friend = friendsMap.get(friendId);
                 return {
                     ...channel,
+                    participantIds: participants, // Ensure it's always an array
                     friend: friend || {
                         $id: friendId,
                         username: 'Unknown',
