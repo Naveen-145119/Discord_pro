@@ -247,9 +247,16 @@ export function useWebRTC({
                         break;
                     }
 
-                    // Skip if connection is already established with this peer
-                    if (establishedConnectionsRef.current.has(peerId)) {
-                        console.log('[WebRTC] Ignoring offer - connection already established with:', peerId);
+                    // Handle renegotiation offers (when connection is already established)
+                    const isRenegotiation = establishedConnectionsRef.current.has(peerId) && 
+                                           pc.connectionState === 'connected';
+                    
+                    if (isRenegotiation) {
+                        console.log('[WebRTC] Handling renegotiation offer from:', peerId);
+                        // For renegotiation, we can accept offers even when established
+                    } else if (establishedConnectionsRef.current.has(peerId)) {
+                        // Connection established but not in connected state - skip
+                        console.log('[WebRTC] Ignoring offer - connection already in progress with:', peerId);
                         break;
                     }
 
@@ -268,7 +275,7 @@ export function useWebRTC({
                             console.log('[WebRTC] Glare detected - we are impolite, ignoring their offer');
                             break;
                         }
-                    } else if (pc.signalingState !== 'stable') {
+                    } else if (pc.signalingState !== 'stable' && !isRenegotiation) {
                         console.log('[WebRTC] Ignoring offer, signaling state is:', pc.signalingState);
                         break;
                     }
@@ -697,14 +704,27 @@ export function useWebRTC({
                         currentStream.addTrack(videoTrack);
                     }
 
-                    peerConnectionsRef.current.forEach((pc) => {
+                    // Add track to all peer connections and renegotiate
+                    for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
                         const existingVideoSender = pc.getSenders().find(s => s.track?.kind === 'video');
                         if (existingVideoSender) {
-                            existingVideoSender.replaceTrack(videoTrack);
+                            await existingVideoSender.replaceTrack(videoTrack);
+                            console.log('[WebRTC] Replaced video track for peer:', peerId);
                         } else if (currentStream) {
                             pc.addTrack(videoTrack, currentStream);
+                            console.log('[WebRTC] Added video track for peer:', peerId);
+                            
+                            // Renegotiation is needed when adding new track
+                            try {
+                                const offer = await pc.createOffer();
+                                await pc.setLocalDescription(offer);
+                                await sendSignal(peerId, 'offer', { sdp: offer.sdp });
+                                console.log('[WebRTC] Sent renegotiation offer for video to:', peerId);
+                            } catch (err) {
+                                console.error('[WebRTC] Failed to renegotiate for video:', err);
+                            }
                         }
-                    });
+                    }
                 }
                 setIsVideoOn(true);
             } catch (err) {
@@ -712,7 +732,7 @@ export function useWebRTC({
                 setError(message);
             }
         }
-    }, [isVideoOn]);
+    }, [isVideoOn, sendSignal]);
 
     const stopScreenShare = useCallback(() => {
         if (!screenStream) return;
@@ -740,17 +760,27 @@ export function useWebRTC({
             setScreenStream(stream);
             console.log('[WebRTC] Screen share stream obtained');
 
-            const peerConnections = Array.from(peerConnectionsRef.current.values());
-            for (const pc of peerConnections) {
+            // Add screen share tracks to all peer connections with renegotiation
+            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
                 stream.getTracks().forEach((track) => {
                     const existingSender = pc.getSenders().find(s => s.track === track);
                     if (!existingSender) {
                         pc.addTrack(track, stream);
-                        console.log('[WebRTC] Added screen track to peer connection');
+                        console.log('[WebRTC] Added screen track to peer connection:', peerId);
                     }
                 });
 
                 await setVideoBitrate(pc, BITRATE_CONFIG.screenShare);
+                
+                // Renegotiate to inform peer about new tracks
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    await sendSignal(peerId, 'offer', { sdp: offer.sdp });
+                    console.log('[WebRTC] Sent renegotiation offer for screen share to:', peerId);
+                } catch (err) {
+                    console.error('[WebRTC] Failed to renegotiate for screen share:', err);
+                }
             }
 
             stream.getVideoTracks()[0].onended = () => {
@@ -763,7 +793,7 @@ export function useWebRTC({
             const message = err instanceof Error ? err.message : 'Failed to share screen';
             setError(message);
         }
-    }, [isScreenSharing, stopScreenShare]);
+    }, [isScreenSharing, stopScreenShare, sendSignal]);
 
     useEffect(() => {
         return () => {
