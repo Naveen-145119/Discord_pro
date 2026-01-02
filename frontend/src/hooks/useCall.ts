@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { databases, functions, client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 
 import { useAuthStore } from '@/stores/authStore';
@@ -53,13 +53,15 @@ export function useCall(): UseCallReturn {
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
     // WebRTC hook - only initialize when in a call
-    // Calculate target user ID for DM calls
-    const targetUserId = currentCall ?
-        (currentCall.callerId === user?.$id ? currentCall.receiverId : currentCall.callerId)
-        : '';
+    // Calculate target user ID - use incomingCall when answering (before currentCall is set)
+    const targetUserId = useMemo(() => {
+        const call = currentCall || incomingCall;
+        if (!call) return '';
+        return call.callerId === user?.$id ? call.receiverId : call.callerId;
+    }, [currentCall, incomingCall, user?.$id]);
 
     const webRTC = useWebRTC({
-        channelId: currentCall?.channelId || '',
+        channelId: currentCall?.channelId || incomingCall?.channelId || '',
         userId: user?.$id || '',
         displayName: user?.displayName || 'User',
         mode: 'dm',
@@ -130,7 +132,11 @@ export function useCall(): UseCallReturn {
                 { status: 'answered' }
             );
 
-            setCurrentCall(incomingCall);
+            // Update local state with correct status (incomingCall still has 'ringing')
+            setCurrentCall({
+                ...incomingCall,
+                status: 'answered'
+            });
             setIncomingCall(null);
 
             // Join WebRTC channel
@@ -224,7 +230,12 @@ export function useCall(): UseCallReturn {
                         clearTimeout(callTimeoutRef.current);
                         callTimeoutRef.current = null;
                     }
-                    setCurrentCall(call);
+                    // Preserve existing call data (caller, receiver) while updating status
+                    setCurrentCall(prev => ({
+                        ...prev,
+                        ...call,
+                        status: 'answered'
+                    }));
                 }
 
                 // Call ended or declined
