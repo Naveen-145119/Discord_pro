@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { databases, functions, client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { databases, functions, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 
 import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
+import { useRealtime } from '@/providers/RealtimeProvider';
 import type { User } from '@/types';
 
 export type CallStatus = 'ringing' | 'answered' | 'ended' | 'declined';
@@ -222,65 +223,59 @@ export function useCall(): UseCallReturn {
         }
     }, [webRTC]);
 
-    // Subscribe to incoming calls
+    // Subscribe to incoming calls via centralized provider
+    const { subscribe } = useRealtime();
+
     useEffect(() => {
         if (!user?.$id) return;
 
-        // Delay subscription to prevent WebSocket connection conflicts
-        const timeoutId = setTimeout(() => {
-            const unsubscribe = client.subscribe(
-                `databases.${DATABASE_ID}.collections.${COLLECTIONS.ACTIVE_CALLS}.documents`,
-                async (response) => {
-                    const call = response.payload as unknown as ActiveCall;
-                    const event = response.events[0];
+        // Listen to call events from centralized subscription
+        const unsubscribe = subscribe(async (event) => {
+            if (event.collection !== COLLECTIONS.ACTIVE_CALLS) return;
 
-                    // Incoming call (user is receiver and call is ringing)
-                    if (call.receiverId === user.$id && call.status === 'ringing' && event.includes('.create')) {
-                        try {
-                            const callerDoc = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, call.callerId);
-                            setIncomingCall({
-                                ...call,
-                                caller: callerDoc as unknown as User
-                            });
-                        } catch {
-                            setIncomingCall(call);
-                        }
-                    }
+            const call = event.payload as ActiveCall;
 
-                    // Call was answered (update for caller)
-                    if (call.callerId === user.$id && call.status === 'answered') {
-                        if (callTimeoutRef.current) {
-                            clearTimeout(callTimeoutRef.current);
-                            callTimeoutRef.current = null;
-                        }
-                        setCurrentCall(prev => ({
-                            ...prev,
-                            ...call,
-                            status: 'answered'
-                        }));
-                    }
-
-                    // Call ended or declined
-                    if ((call.status === 'ended' || call.status === 'declined') &&
-                        (call.callerId === user.$id || call.receiverId === user.$id)) {
-                        if (call.$id === currentCall?.$id) {
-                            setCurrentCall(null);
-                            webRTC.leaveChannel();
-                        }
-                        if (call.$id === incomingCall?.$id) {
-                            setIncomingCall(null);
-                        }
-                    }
+            // Incoming call (user is receiver and call is ringing)
+            if (call.receiverId === user.$id && call.status === 'ringing' && event.event.includes('.create')) {
+                try {
+                    const callerDoc = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, call.callerId);
+                    setIncomingCall({
+                        ...call,
+                        caller: callerDoc as unknown as User
+                    });
+                } catch {
+                    setIncomingCall(call);
                 }
-            );
-            (window as unknown as Record<string, () => void>).__callUnsubscribe = unsubscribe;
-        }, 1000);
+            }
 
-        return () => {
-            clearTimeout(timeoutId);
-            (window as unknown as Record<string, () => void>).__callUnsubscribe?.();
-        };
-    }, [user?.$id, currentCall?.$id, incomingCall?.$id, webRTC]);
+            // Call was answered (update for caller)
+            if (call.callerId === user.$id && call.status === 'answered') {
+                if (callTimeoutRef.current) {
+                    clearTimeout(callTimeoutRef.current);
+                    callTimeoutRef.current = null;
+                }
+                setCurrentCall(prev => ({
+                    ...prev,
+                    ...call,
+                    status: 'answered'
+                }));
+            }
+
+            // Call ended or declined
+            if ((call.status === 'ended' || call.status === 'declined') &&
+                (call.callerId === user.$id || call.receiverId === user.$id)) {
+                if (call.$id === currentCall?.$id) {
+                    setCurrentCall(null);
+                    webRTC.leaveChannel();
+                }
+                if (call.$id === incomingCall?.$id) {
+                    setIncomingCall(null);
+                }
+            }
+        });
+
+        return unsubscribe;
+    }, [user?.$id, currentCall?.$id, incomingCall?.$id, webRTC, subscribe]);
 
     // Handle remote streams from WebRTC
     useEffect(() => {
