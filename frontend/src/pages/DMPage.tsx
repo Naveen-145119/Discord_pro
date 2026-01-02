@@ -19,9 +19,6 @@ import { formatMessageTime } from '@/lib/utils';
 import type { Message as MessageType, User } from '@/types';
 import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 
-/**
- * DM Page - Direct message conversation view with calling support
- */
 export function DMPage() {
     const { channelId } = useParams<{ channelId: string }>();
     const navigate = useNavigate();
@@ -43,13 +40,11 @@ export function DMPage() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-    // Find current DM channel and friend
     useEffect(() => {
         const dmChannel = dmChannels.find(dm => dm.$id === channelId);
         if (dmChannel) {
             setFriend(dmChannel.friend);
         } else if (channelId) {
-            // If not in dmChannels yet, fetch directly
             const fetchDMDetails = async () => {
                 try {
                     const dm = await databases.getDocument(DATABASE_ID, COLLECTIONS.DM_CHANNELS, channelId);
@@ -69,7 +64,6 @@ export function DMPage() {
         }
     }, [channelId, dmChannels, user?.$id]);
 
-    // Fetch messages
     useEffect(() => {
         if (channelId) {
             fetchMessages(channelId);
@@ -80,7 +74,6 @@ export function DMPage() {
         };
     }, [channelId, fetchMessages, clearMessages]);
 
-    // Subscribe to realtime updates
     useEffect(() => {
         if (!channelId) return;
 
@@ -90,14 +83,12 @@ export function DMPage() {
         };
     }, [channelId]);
 
-    // Scroll to bottom on new messages
     useEffect(() => {
         if (messagesEndRef.current && messages.length > 0) {
             messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [messages.length]);
 
-    // Handle send message
     const handleSend = async () => {
         if (!inputValue.trim() || !channelId || !user?.$id) return;
 
@@ -111,7 +102,6 @@ export function DMPage() {
         }
     };
 
-    // Handle key press
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -119,7 +109,6 @@ export function DMPage() {
         }
     };
 
-    // Load more messages on scroll to top
     const handleScroll = () => {
         const container = messagesContainerRef.current;
         if (!container || isLoading || !hasMore) return;
@@ -130,7 +119,6 @@ export function DMPage() {
         }
     };
 
-    // Start call using global CallProvider
     const handleStartCall = (type: 'voice' | 'video') => {
         if (!channelId || !friend) return;
         startGlobalCall(friend.$id, channelId, type, friend);
@@ -155,7 +143,6 @@ export function DMPage() {
 
     return (
         <div className="flex-1 flex flex-col bg-background-primary">
-            {/* Header */}
             <div className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low">
                 <div className="flex items-center gap-3">
                     <button
@@ -165,7 +152,6 @@ export function DMPage() {
                         <ArrowLeft size={20} />
                     </button>
 
-                    {/* Friend avatar and info */}
                     <div className="relative">
                         <div className="w-8 h-8 rounded-full bg-discord-primary flex items-center justify-center">
                             {friend.avatarUrl ? (
@@ -186,7 +172,6 @@ export function DMPage() {
                     </div>
                 </div>
 
-                {/* Call buttons */}
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => handleStartCall('voice')}
@@ -211,7 +196,6 @@ export function DMPage() {
                 </div>
             </div>
 
-            {/* Messages */}
             <div
                 ref={messagesContainerRef}
                 onScroll={handleScroll}
@@ -273,7 +257,6 @@ export function DMPage() {
                 )}
             </div>
 
-            {/* Input */}
             <div className="px-4 pb-6">
                 <div className="flex items-center gap-2 bg-background-tertiary rounded-lg px-4">
                     <button className="text-interactive-normal hover:text-interactive-hover py-2.5">
@@ -316,7 +299,6 @@ export function DMPage() {
     );
 }
 
-// DM Message item component
 function DMMessageItem({
     message,
     friend,
@@ -331,7 +313,6 @@ function DMMessageItem({
 
     return (
         <div className="message-container group">
-            {/* Avatar */}
             <div className="avatar w-10 h-10 mt-0.5 flex-shrink-0 bg-discord-primary">
                 {displayUser?.avatarUrl ? (
                     <img src={displayUser.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
@@ -342,7 +323,6 @@ function DMMessageItem({
                 )}
             </div>
 
-            {/* Content */}
             <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2">
                     <span className="font-medium text-text-heading hover:underline cursor-pointer">
@@ -362,6 +342,3 @@ function DMMessageItem({
         </div>
     );
 }
-
-// DM Call Modal component
-

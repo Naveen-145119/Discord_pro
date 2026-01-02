@@ -19,9 +19,6 @@ import {
 
 type FriendTab = 'all' | 'pending' | 'online';
 
-/**
- * Home page - shows DMs and friend list with full friend management
- */
 export function HomePage() {
     const navigate = useNavigate();
     const { user, logout } = useAuthStore();
@@ -85,16 +82,13 @@ export function HomePage() {
 
     return (
         <div className="flex flex-1 bg-background-primary">
-            {/* DM Sidebar */}
             <div className="w-60 bg-background-secondary flex flex-col">
-                {/* Search */}
                 <div className="p-2">
                     <button className="w-full px-2 py-1.5 bg-background-tertiary rounded-md text-left text-text-muted text-sm">
                         Find or start a conversation
                     </button>
                 </div>
 
-                {/* Navigation */}
                 <div className="px-2 space-y-0.5">
                     <button className="channel-item active w-full">
                         <Users size={20} />
@@ -102,7 +96,6 @@ export function HomePage() {
                     </button>
                 </div>
 
-                {/* Direct Messages header */}
                 <div className="flex items-center justify-between px-4 pt-4 pb-1">
                     <span className="text-xs font-semibold text-channel-text uppercase">
                         Direct Messages
@@ -112,7 +105,6 @@ export function HomePage() {
                     </button>
                 </div>
 
-                {/* DM List */}
                 <div className="flex-1 px-2 py-2 overflow-y-auto">
                     {dmChannels.length === 0 ? (
                         <p className="text-center text-text-muted text-sm py-8">
@@ -141,7 +133,6 @@ export function HomePage() {
                     )}
                 </div>
 
-                {/* User panel */}
                 <div className="px-2 py-2 bg-background-secondary-alt">
                     <div className="flex items-center gap-2 p-1 rounded hover:bg-background-modifier-hover">
                         <div className="avatar w-8 h-8 bg-discord-primary">
@@ -176,16 +167,13 @@ export function HomePage() {
                 </div>
             </div>
 
-            {/* Main content */}
             <div className="flex-1 flex flex-col">
-                {/* Header with tabs */}
                 <div className="h-12 px-4 flex items-center gap-4 border-b border-background-tertiary shadow-elevation-low">
                     <Users size={24} className="text-interactive-muted" />
                     <span className="font-semibold text-text-heading">Friends</span>
 
                     <div className="h-6 w-px bg-background-tertiary mx-2" />
 
-                    {/* Tabs */}
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setActiveTab('online')}
@@ -223,7 +211,6 @@ export function HomePage() {
 
                     <div className="flex-1" />
 
-                    {/* Add Friend Button */}
                     <button
                         onClick={() => setIsAddFriendModalOpen(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded transition-colors"
@@ -233,7 +220,6 @@ export function HomePage() {
                     </button>
                 </div>
 
-                {/* Friends content */}
                 <div className="flex-1 overflow-y-auto p-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center h-full">
@@ -241,7 +227,6 @@ export function HomePage() {
                         </div>
                     ) : (
                         <>
-                            {/* Online Friends Tab */}
                             {activeTab === 'online' && (
                                 <div>
                                     <h3 className="text-xs font-semibold text-channel-text uppercase mb-3">
@@ -265,7 +250,6 @@ export function HomePage() {
                                 </div>
                             )}
 
-                            {/* All Friends Tab */}
                             {activeTab === 'all' && (
                                 <div>
                                     <h3 className="text-xs font-semibold text-channel-text uppercase mb-3">
@@ -297,10 +281,8 @@ export function HomePage() {
                                 </div>
                             )}
 
-                            {/* Pending Requests Tab */}
                             {activeTab === 'pending' && (
                                 <div className="space-y-6">
-                                    {/* Incoming Requests */}
                                     {pendingRequests.length > 0 && (
                                         <div>
                                             <h3 className="text-xs font-semibold text-channel-text uppercase mb-3">
@@ -354,7 +336,6 @@ export function HomePage() {
                                         </div>
                                     )}
 
-                                    {/* Outgoing Requests */}
                                     {sentRequests.length > 0 && (
                                         <div>
                                             <h3 className="text-xs font-semibold text-channel-text uppercase mb-3">
@@ -385,7 +366,6 @@ export function HomePage() {
                                         </div>
                                     )}
 
-                                    {/* Empty state */}
                                     {pendingRequests.length === 0 && sentRequests.length === 0 && (
                                         <div className="flex flex-col items-center justify-center py-16 text-center">
                                             <Clock size={64} className="text-interactive-muted mb-4" />
@@ -404,7 +384,6 @@ export function HomePage() {
                 </div>
             </div>
 
-            {/* Add Friend Modal */}
             <AddFriendModal
                 isOpen={isAddFriendModalOpen}
                 onClose={() => setIsAddFriendModalOpen(false)}
@@ -414,7 +393,6 @@ export function HomePage() {
     );
 }
 
-// Friend list item component
 interface FriendItemProps {
     friend: {
         $id: string;

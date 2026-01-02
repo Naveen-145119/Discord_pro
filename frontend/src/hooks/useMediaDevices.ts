@@ -1,7 +1,3 @@
-/**
- * useMediaDevices Hook
- * Manages camera/microphone enumeration and permissions
- */
 import { useCallback, useEffect, useState } from 'react';
 
 export interface MediaDevice {
@@ -11,21 +7,14 @@ export interface MediaDevice {
 }
 
 interface UseMediaDevicesReturn {
-    // Devices
     audioInputs: MediaDevice[];
     audioOutputs: MediaDevice[];
     videoInputs: MediaDevice[];
-
-    // Selected devices
     selectedAudioInput: string | null;
     selectedAudioOutput: string | null;
     selectedVideoInput: string | null;
-
-    // Permissions
     hasAudioPermission: boolean;
     hasVideoPermission: boolean;
-
-    // Actions
     selectAudioInput: (deviceId: string) => void;
     selectAudioOutput: (deviceId: string) => void;
     selectVideoInput: (deviceId: string) => void;
@@ -45,9 +34,6 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     const [hasAudioPermission, setHasAudioPermission] = useState(false);
     const [hasVideoPermission, setHasVideoPermission] = useState(false);
 
-    /**
-     * Enumerate available devices
-     */
     const refreshDevices = useCallback(async () => {
         try {
             const devices = await navigator.mediaDevices.enumerateDevices();
@@ -80,7 +66,6 @@ export function useMediaDevices(): UseMediaDevicesReturn {
             setAudioOutputs(outputs);
             setVideoInputs(videos);
 
-            // Auto-select defaults using functional updates to avoid dependency cycles and stale state
             setSelectedAudioInput(prev => {
                 if (prev) return prev;
                 return inputs.length > 0 ? inputs[0].deviceId : null;
@@ -100,9 +85,6 @@ export function useMediaDevices(): UseMediaDevicesReturn {
         }
     }, []);
 
-    /**
-     * Request camera/microphone permissions
-     */
     const requestPermissions = useCallback(async (): Promise<boolean> => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -110,18 +92,15 @@ export function useMediaDevices(): UseMediaDevicesReturn {
                 video: true,
             });
 
-            // Stop tracks immediately (we just want permission)
             stream.getTracks().forEach((track) => track.stop());
 
             setHasAudioPermission(true);
             setHasVideoPermission(true);
 
-            // Refresh devices now that we have permission (labels will be visible)
             await refreshDevices();
 
             return true;
         } catch {
-            // Try audio only
             try {
                 const audioStream = await navigator.mediaDevices.getUserMedia({
                     audio: true,
@@ -138,33 +117,21 @@ export function useMediaDevices(): UseMediaDevicesReturn {
         }
     }, [refreshDevices]);
 
-    /**
-     * Select audio input device
-     */
     const selectAudioInput = useCallback((deviceId: string) => {
         setSelectedAudioInput(deviceId);
     }, []);
 
-    /**
-     * Select audio output device
-     */
     const selectAudioOutput = useCallback((deviceId: string) => {
         setSelectedAudioOutput(deviceId);
     }, []);
 
-    /**
-     * Select video input device
-     */
     const selectVideoInput = useCallback((deviceId: string) => {
         setSelectedVideoInput(deviceId);
     }, []);
 
-    // Initial device enumeration
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         refreshDevices();
 
-        // Listen for device changes
         const handleDeviceChange = () => {
             refreshDevices();
         };

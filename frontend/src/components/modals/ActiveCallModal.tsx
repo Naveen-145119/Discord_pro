@@ -62,13 +62,15 @@ export function ActiveCallModal({
         // Attach to hidden audio element
         if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.volume = 1.0; // Ensure volume is max
             
             // Try to play immediately
             const playPromise = remoteAudioRef.current.play();
             if (playPromise !== undefined) {
                 playPromise
                     .then(() => {
-                        console.log('[ActiveCallModal] Audio playback started successfully');
+                        console.log('[ActiveCallModal] Audio playback started successfully, volume:', 
+                            remoteAudioRef.current?.volume, 'muted:', remoteAudioRef.current?.muted);
                         setAudioPlaybackFailed(false);
                     })
                     .catch((err) => {

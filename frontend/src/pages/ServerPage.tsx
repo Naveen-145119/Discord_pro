@@ -5,22 +5,17 @@ import { ChannelSidebar } from '@/components/layout/ChannelSidebar';
 import { ChannelPage } from './ChannelPage';
 import { Hash } from 'lucide-react';
 
-/**
- * Server page - shows server channels and content
- */
 export function ServerPage() {
     const { serverId } = useParams<{ serverId: string }>();
     const navigate = useNavigate();
     const { currentServer, channels, fetchServerDetails, isLoading } = useServerStore();
 
-    // Fetch server details on mount or server change
     useEffect(() => {
         if (serverId) {
             fetchServerDetails(serverId);
         }
     }, [serverId, fetchServerDetails]);
 
-    // Redirect to default channel if no channel selected
     useEffect(() => {
         if (currentServer?.defaultChannelId && window.location.pathname === `/servers/${serverId}`) {
             navigate(`/servers/${serverId}/channels/${currentServer.defaultChannelId}`, { replace: true });
@@ -45,10 +40,8 @@ export function ServerPage() {
 
     return (
         <div className="flex flex-1 bg-background-primary">
-            {/* Channel sidebar */}
             <ChannelSidebar server={currentServer} channels={channels} />
 
-            {/* Channel content */}
             <Routes>
                 <Route path="channels/:channelId" element={<ChannelPage />} />
                 <Route

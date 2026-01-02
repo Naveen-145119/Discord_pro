@@ -126,11 +126,18 @@ export function useWebRTC({
 
         pc.onconnectionstatechange = () => {
             const state = pc.connectionState;
+            console.log('[WebRTC] Connection state changed:', state, 'for peer:', peerId);
             if (state === 'connected') {
                 setConnectionState('connected');
+                console.log('[WebRTC] ✅ PEER CONNECTION ESTABLISHED with:', peerId);
             } else if (state === 'failed' || state === 'disconnected') {
+                console.log('[WebRTC] ❌ Connection failed/disconnected:', state);
                 setConnectionState('failed');
             }
+        };
+        
+        pc.oniceconnectionstatechange = () => {
+            console.log('[WebRTC] ICE connection state:', pc.iceConnectionState);
         };
 
         pc.ontrack = (event) => {
@@ -203,8 +210,11 @@ export function useWebRTC({
                         break;
                     }
 
+                    // CRITICAL: Only process offer if in stable state
+                    // If we already processed an offer, we're in have-remote-offer or have-local-pranswer
                     if (pc.signalingState !== 'stable') {
-                        console.warn('[WebRTC] Received offer but signaling state is:', pc.signalingState, '- may need glare handling');
+                        console.log('[WebRTC] Ignoring duplicate offer, signaling state is:', pc.signalingState);
+                        break;
                     }
 
                     const stream = localStreamRef.current;
@@ -355,6 +365,12 @@ export function useWebRTC({
             const stream = await getUserMedia(false);
             localStreamRef.current = stream;
             setLocalStream(stream);
+            
+            // Log local audio track status
+            const audioTrack = stream.getAudioTracks()[0];
+            console.log('[WebRTC] Local audio track:', audioTrack ? 
+                `enabled:${audioTrack.enabled} muted:${audioTrack.muted} readyState:${audioTrack.readyState}` : 
+                'NO AUDIO TRACK!');
 
             await functions.createExecution('webrtc-signal', JSON.stringify({
                 action: 'join',

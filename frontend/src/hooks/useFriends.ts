@@ -5,14 +5,11 @@ import type { User, Friend, FriendRequest } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 
 interface UseFriendsReturn {
-    // State
     friends: User[];
     pendingRequests: FriendRequest[];
     sentRequests: FriendRequest[];
     isLoading: boolean;
     error: string | null;
-
-    // Actions
     sendRequest: (username: string) => Promise<void>;
     acceptRequest: (requestId: string) => Promise<void>;
     declineRequest: (requestId: string) => Promise<void>;
@@ -20,9 +17,6 @@ interface UseFriendsReturn {
     refresh: () => Promise<void>;
 }
 
-/**
- * Custom hook for managing friends and friend requests
- */
 export function useFriends(): UseFriendsReturn {
     const { user } = useAuthStore();
     const [friends, setFriends] = useState<User[]>([]);
@@ -31,12 +25,10 @@ export function useFriends(): UseFriendsReturn {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch all friends for the current user
     const fetchFriends = useCallback(async () => {
         if (!user?.$id) return;
 
         try {
-            // Query friendships where user is either userId1 or userId2
             const [asUser1, asUser2] = await Promise.all([
                 databases.listDocuments(DATABASE_ID, COLLECTIONS.FRIENDS, [
                     Query.equal('userId1', user.$id),
@@ -48,7 +40,6 @@ export function useFriends(): UseFriendsReturn {
                 ])
             ]);
 
-            // Get friend user IDs
             const friendIds = new Set<string>();
             [...asUser1.documents, ...asUser2.documents].forEach((doc) => {
                 const friendship = doc as unknown as Friend;
@@ -58,7 +49,6 @@ export function useFriends(): UseFriendsReturn {
                 friendIds.add(friendId);
             });
 
-            // Fetch friend user details
             if (friendIds.size > 0) {
                 const friendUsers = await databases.listDocuments(DATABASE_ID, COLLECTIONS.USERS, [
                     Query.equal('$id', Array.from(friendIds)),
@@ -74,7 +64,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id]);
 
-    // Fetch pending friend requests (received by current user)
     const fetchPendingRequests = useCallback(async () => {
         if (!user?.$id) return;
 
@@ -86,7 +75,6 @@ export function useFriends(): UseFriendsReturn {
                 Query.limit(50)
             ]);
 
-            // Fetch sender details for each request
             const requests = result.documents as unknown as FriendRequest[];
             const senderIds = [...new Set(requests.map(r => r.senderId))];
 
@@ -110,7 +98,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id]);
 
-    // Fetch sent friend requests (by current user)
     const fetchSentRequests = useCallback(async () => {
         if (!user?.$id) return;
 
@@ -122,7 +109,6 @@ export function useFriends(): UseFriendsReturn {
                 Query.limit(50)
             ]);
 
-            // Fetch receiver details for each request
             const requests = result.documents as unknown as FriendRequest[];
             const receiverIds = [...new Set(requests.map(r => r.receiverId))];
 
@@ -146,7 +132,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id]);
 
-    // Refresh all data
     const refresh = useCallback(async () => {
         setIsLoading(true);
         setError(null);
@@ -154,7 +139,6 @@ export function useFriends(): UseFriendsReturn {
         setIsLoading(false);
     }, [fetchFriends, fetchPendingRequests, fetchSentRequests]);
 
-    // Send friend request
     const sendRequest = useCallback(async (username: string) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
@@ -178,7 +162,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id, fetchSentRequests]);
 
-    // Accept friend request
     const acceptRequest = useCallback(async (requestId: string) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
@@ -202,7 +185,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id, fetchFriends, fetchPendingRequests]);
 
-    // Decline friend request
     const declineRequest = useCallback(async (requestId: string) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
@@ -226,7 +208,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id, fetchPendingRequests]);
 
-    // Remove friend
     const removeFriend = useCallback(async (friendId: string) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
@@ -250,7 +231,6 @@ export function useFriends(): UseFriendsReturn {
         }
     }, [user?.$id, fetchFriends]);
 
-    // Initial data load
     useEffect(() => {
         if (user?.$id) {
             refresh();
