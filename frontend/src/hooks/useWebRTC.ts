@@ -268,12 +268,17 @@ export function useWebRTC({
                         const existingSenders = pc.getSenders();
                         stream.getTracks().forEach((track) => {
                             if (!existingSenders.find(s => s.track === track)) {
-                                console.log('[WebRTC] Adding local track to PC:', track.kind);
+                                console.log('[WebRTC] Adding local track to PC:', track.kind, 'enabled:', track.enabled, 'readyState:', track.readyState);
                                 pc.addTrack(track, stream);
                             }
                         });
+                        
+                        // Verify tracks were added
+                        const senders = pc.getSenders();
+                        console.log('[WebRTC] PeerConnection now has', senders.length, 'senders:', 
+                            senders.map(s => s.track ? `${s.track.kind}:${s.track.enabled}` : 'null').join(', '));
                     } else {
-                        console.warn('[WebRTC] No local stream available when processing offer!');
+                        console.error('[WebRTC] ⚠️ CRITICAL: No local stream available when processing offer! The other peer will not receive our audio.');
                     }
 
                     await pc.setRemoteDescription({
@@ -452,16 +457,51 @@ export function useWebRTC({
 
             voiceDetectorCleanupRef.current = createVoiceActivityDetector(
                 stream,
-                setIsSpeaking
+                (speaking) => {
+                    setIsSpeaking(speaking);
+                    if (speaking) {
+                        console.log('[WebRTC] 🎤 Local user is speaking (mic is working)');
+                    }
+                }
             );
+            
+            // Also do a quick audio level check to verify mic is working
+            try {
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                let checkCount = 0;
+                const checkMic = setInterval(() => {
+                    analyser.getByteFrequencyData(dataArray);
+                    const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                    console.log('[WebRTC] Local mic level:', avg.toFixed(2));
+                    checkCount++;
+                    if (checkCount >= 3) {
+                        clearInterval(checkMic);
+                        source.disconnect();
+                        audioContext.close();
+                    }
+                }, 1000);
+            } catch (e) {
+                console.log('[WebRTC] Could not check local mic level:', e);
+            }
 
             if (effectiveIsInitiator) {
                 if (mode === 'dm' && effectiveTargetUserId) {
                     const pc = createPeerConnection();
 
                     stream.getTracks().forEach((track) => {
+                        console.log('[WebRTC] Initiator adding track:', track.kind, 'enabled:', track.enabled, 'readyState:', track.readyState);
                         pc.addTrack(track, stream);
                     });
+                    
+                    // Verify senders
+                    const senders = pc.getSenders();
+                    console.log('[WebRTC] Initiator PeerConnection has', senders.length, 'senders');
 
                     setupPeerConnection(pc, effectiveTargetUserId);
                     peerConnectionsRef.current.set(effectiveTargetUserId, pc);
