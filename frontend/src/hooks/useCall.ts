@@ -78,7 +78,7 @@ export function useCall(): UseCallReturn {
                     channelId,
                     authorId: callerId,
                     content: '', // Content will be generated on display
-                    type: 'call',
+                    type: 'system', // Using 'system' since 'call' is not in Appwrite schema
                     replyToId: null,
                     attachments: [],
                     metadata: JSON.stringify(metadata),

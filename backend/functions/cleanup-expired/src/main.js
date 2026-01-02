@@ -12,7 +12,9 @@ export default async ({ req, res, log, error }) => {
     let cleaned = {
         invites: 0,
         typingStates: 0,
-        voiceStates: 0
+        voiceStates: 0,
+        webrtcSignals: 0,
+        activeCalls: 0
     };
 
     try {
@@ -59,6 +61,35 @@ export default async ({ req, res, log, error }) => {
             }
         } catch (err) {
             log(`Voice states cleanup skipped: ${err.message}`);
+        }
+
+        try {
+            const expiredSignals = await databases.listDocuments(DATABASE_ID, 'webrtc_signals', [
+                Query.lessThan('expiresAt', now),
+                Query.limit(100)
+            ]);
+
+            for (const signal of expiredSignals.documents) {
+                await databases.deleteDocument(DATABASE_ID, 'webrtc_signals', signal.$id);
+                cleaned.webrtcSignals++;
+            }
+        } catch (err) {
+            log(`WebRTC signals cleanup skipped: ${err.message}`);
+        }
+
+        try {
+            const oneHourAgo2 = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+            const staleCalls = await databases.listDocuments(DATABASE_ID, 'active_calls', [
+                Query.lessThan('$updatedAt', oneHourAgo2),
+                Query.limit(100)
+            ]);
+
+            for (const call of staleCalls.documents) {
+                await databases.deleteDocument(DATABASE_ID, 'active_calls', call.$id);
+                cleaned.activeCalls++;
+            }
+        } catch (err) {
+            log(`Active calls cleanup skipped: ${err.message}`);
         }
 
         log(`Cleanup complete: ${JSON.stringify(cleaned)}`);
