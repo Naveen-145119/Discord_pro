@@ -90,7 +90,16 @@ export interface Channel extends BaseDocument {
     lastMessageAt?: string | null;
 }
 
-export type MessageType = 'default' | 'reply' | 'system' | 'join' | 'leave';
+export type MessageType = 'default' | 'reply' | 'system' | 'join' | 'leave' | 'call';
+
+// Call log metadata stored in message.metadata
+export interface CallLogMetadata {
+    callType: 'voice' | 'video';
+    callStatus: 'started' | 'ended' | 'missed' | 'declined';
+    duration?: number; // Duration in seconds
+    callerId: string;
+    receiverId: string;
+}
 
 export interface Attachment {
     id: string;

@@ -24,6 +24,7 @@ interface ActiveCallModalProps {
     isScreenSharing: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
+    remoteStreamVersion: number;
     isCalling: boolean;
     onEndCall: () => void;
     onToggleMute: () => void;
@@ -39,6 +40,7 @@ export function ActiveCallModal({
     isScreenSharing,
     localStream,
     remoteStream,
+    remoteStreamVersion,
     isCalling,
     onEndCall,
     onToggleMute,
@@ -247,7 +249,7 @@ export function ActiveCallModal({
 
         const audioTracks = remoteStream.getAudioTracks();
         const videoTracks = remoteStream.getVideoTracks();
-        console.log('[ActiveCallModal] Remote stream received:',
+        console.log('[ActiveCallModal] Remote stream received (version:', remoteStreamVersion, '):',
             'audio:', audioTracks.length,
             'video:', videoTracks.length,
             'tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
@@ -274,6 +276,10 @@ export function ActiveCallModal({
             track.onunmute = () => console.log('[ActiveCallModal] Remote audio track unmuted event');
         }
 
+        // Force audio setup reset when stream version changes
+        // This ensures new audio tracks from screen share renegotiation are heard
+        audioSetupForStreamRef.current = null;
+        
         // Setup audio with Web Audio API for volume control
         // Note: Using a ref to get current volume to avoid re-running on volume change
         setupAudioWithGain(remoteStream, volume);
@@ -299,7 +305,7 @@ export function ActiveCallModal({
             }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [remoteStream, setupAudioWithGain]); // volume intentionally omitted - handled by separate effect
+    }, [remoteStream, remoteStreamVersion, setupAudioWithGain]); // volume intentionally omitted - handled by separate effect
 
     // Handle manual audio enable (for autoplay policy)
     const handleManualPlay = async () => {

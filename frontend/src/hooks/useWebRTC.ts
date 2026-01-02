@@ -158,6 +158,7 @@ export function useWebRTC({
                 enabled: track.enabled,
                 muted: track.muted,
                 readyState: track.readyState,
+                streamId: stream?.id,
             });
 
             // Monitor track state changes
@@ -179,9 +180,47 @@ export function useWebRTC({
             setParticipants((prev) => {
                 const updated = new Map(prev);
                 const existing = updated.get(peerId);
+                
+                // Get the existing stream or use the new one
+                let participantStream = existing?.stream;
+                
+                // If we don't have an existing stream, or this is the first audio track, use this stream
+                if (!participantStream) {
+                    participantStream = stream;
+                } else if (track.kind === 'audio' && !participantStream.getAudioTracks().some(t => t.id === track.id)) {
+                    // If we receive an audio track that's not in our current stream, add it
+                    // This handles the case where microphone audio comes in a different stream than screen share
+                    try {
+                        participantStream.addTrack(track);
+                        console.log('[WebRTC] Added audio track to existing participant stream');
+                    } catch (e) {
+                        // If we can't add to existing stream, merge the streams
+                        console.log('[WebRTC] Creating merged stream with new audio track');
+                        const mergedStream = new MediaStream();
+                        participantStream.getTracks().forEach(t => mergedStream.addTrack(t));
+                        if (!mergedStream.getTracks().some(t => t.id === track.id)) {
+                            mergedStream.addTrack(track);
+                        }
+                        participantStream = mergedStream;
+                    }
+                } else if (track.kind === 'video' && !participantStream.getVideoTracks().some(t => t.id === track.id)) {
+                    // Add new video tracks (screen share) to the existing stream
+                    try {
+                        participantStream.addTrack(track);
+                        console.log('[WebRTC] Added video track to existing participant stream');
+                    } catch (e) {
+                        console.log('[WebRTC] Creating merged stream with new video track');
+                        const mergedStream = new MediaStream();
+                        participantStream.getTracks().forEach(t => mergedStream.addTrack(t));
+                        if (!mergedStream.getTracks().some(t => t.id === track.id)) {
+                            mergedStream.addTrack(track);
+                        }
+                        participantStream = mergedStream;
+                    }
+                }
 
-                const hasVideoTrack = stream.getVideoTracks().length > 0;
-                const hasAudioTrack = stream.getAudioTracks().length > 0;
+                const hasVideoTrack = participantStream.getVideoTracks().length > 0;
+                const hasAudioTrack = participantStream.getAudioTracks().length > 0;
 
                 updated.set(peerId, {
                     odId: peerId,
@@ -191,12 +230,12 @@ export function useWebRTC({
                     isVideoOn: hasVideoTrack || (existing?.isVideoOn ?? false),
                     isScreenSharing: existing?.isScreenSharing ?? false,
                     isSpeaking: false,
-                    stream,
+                    stream: participantStream,
                 });
 
                 console.log('[WebRTC] Updated participant:', peerId,
                     'audio:', hasAudioTrack, 'video:', hasVideoTrack,
-                    'tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
+                    'tracks:', participantStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
 
                 return updated;
             });
@@ -249,15 +288,14 @@ export function useWebRTC({
 
                     // Handle renegotiation offers (when connection is already established)
                     const isRenegotiation = establishedConnectionsRef.current.has(peerId) && 
-                                           pc.connectionState === 'connected';
+                                           (pc.connectionState === 'connected' || pc.connectionState === 'connecting');
                     
                     if (isRenegotiation) {
-                        console.log('[WebRTC] Handling renegotiation offer from:', peerId);
-                        // For renegotiation, we can accept offers even when established
-                    } else if (establishedConnectionsRef.current.has(peerId)) {
-                        // Connection established but not in connected state - skip
-                        console.log('[WebRTC] Ignoring offer - connection already in progress with:', peerId);
-                        break;
+                        console.log('[WebRTC] Handling renegotiation offer from:', peerId, 'connectionState:', pc.connectionState);
+                        // For renegotiation, we accept offers even when established
+                    } else if (establishedConnectionsRef.current.has(peerId) && pc.connectionState === 'connected') {
+                        // Already connected and not a renegotiation - this shouldn't happen
+                        console.log('[WebRTC] Unexpected offer on established connection:', peerId);
                     }
 
                     // Handle glare (both peers sent offers simultaneously)
@@ -275,16 +313,31 @@ export function useWebRTC({
                             console.log('[WebRTC] Glare detected - we are impolite, ignoring their offer');
                             break;
                         }
-                    } else if (pc.signalingState !== 'stable' && !isRenegotiation) {
-                        console.log('[WebRTC] Ignoring offer, signaling state is:', pc.signalingState);
-                        break;
+                    } else if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-remote-offer') {
+                        // Only skip if we're in an unexpected state
+                        if (!isRenegotiation) {
+                            console.log('[WebRTC] Ignoring offer, signaling state is:', pc.signalingState);
+                            break;
+                        }
                     }
 
                     const stream = localStreamRef.current;
                     if (stream) {
                         const existingSenders = pc.getSenders();
+                        const audioTrack = stream.getAudioTracks()[0];
+                        
+                        // Ensure audio track is added and enabled
+                        if (audioTrack) {
+                            const hasAudioSender = existingSenders.some(s => s.track?.id === audioTrack.id);
+                            if (!hasAudioSender) {
+                                console.log('[WebRTC] Adding audio track to PC during renegotiation:', audioTrack.enabled, audioTrack.readyState);
+                                pc.addTrack(audioTrack, stream);
+                            }
+                        }
+                        
+                        // Add any other tracks
                         stream.getTracks().forEach((track) => {
-                            if (!existingSenders.find(s => s.track === track)) {
+                            if (!existingSenders.find(s => s.track?.id === track.id)) {
                                 console.log('[WebRTC] Adding local track to PC:', track.kind, 'enabled:', track.enabled, 'readyState:', track.readyState);
                                 pc.addTrack(track, stream);
                             }
@@ -293,7 +346,7 @@ export function useWebRTC({
                         // Verify tracks were added
                         const senders = pc.getSenders();
                         console.log('[WebRTC] PeerConnection now has', senders.length, 'senders:', 
-                            senders.map(s => s.track ? `${s.track.kind}:${s.track.enabled}` : 'null').join(', '));
+                            senders.map(s => s.track ? `${s.track.kind}:${s.track.enabled}:${s.track.id.substring(0,8)}` : 'null').join(', '));
                     } else {
                         console.error('[WebRTC] ⚠️ CRITICAL: No local stream available when processing offer! The other peer will not receive our audio.');
                     }
@@ -648,8 +701,22 @@ export function useWebRTC({
 
         const audioTrack = stream.getAudioTracks()[0];
         if (audioTrack) {
-            audioTrack.enabled = isMuted;
-            setIsMuted(!isMuted);
+            const newMutedState = !isMuted;
+            audioTrack.enabled = !newMutedState; // enabled = true when NOT muted
+            setIsMuted(newMutedState);
+            
+            console.log('[WebRTC] toggleMute: muted =', newMutedState, 'audioTrack.enabled =', audioTrack.enabled);
+            
+            // Also verify all peer connection audio senders are in sync
+            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+                const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+                audioSenders.forEach(sender => {
+                    if (sender.track) {
+                        sender.track.enabled = !newMutedState;
+                        console.log('[WebRTC] Synced audio sender for peer:', peerId, 'enabled:', sender.track.enabled);
+                    }
+                });
+            }
         }
     }, [isMuted]);
 
@@ -730,23 +797,73 @@ export function useWebRTC({
         }
     }, [isVideoOn, sendSignal]);
 
-    const stopScreenShare = useCallback(() => {
+    const stopScreenShare = useCallback(async () => {
         if (!screenStream) return;
 
+        console.log('[WebRTC] Stopping screen share...');
+        
         const screenTracks = screenStream.getTracks();
-        peerConnectionsRef.current.forEach((pc) => {
+        
+        // Remove screen share tracks from all peer connections
+        for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+            const sendersToRemove: RTCRtpSender[] = [];
+            
             pc.getSenders().forEach((sender) => {
                 if (sender.track && screenTracks.includes(sender.track)) {
-                    pc.removeTrack(sender);
+                    sendersToRemove.push(sender);
                 }
             });
-        });
+            
+            // Remove the screen share senders
+            sendersToRemove.forEach((sender) => {
+                pc.removeTrack(sender);
+                console.log('[WebRTC] Removed screen track from peer connection:', peerId);
+            });
+            
+            // CRITICAL: Verify and restore the microphone audio track
+            const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
+            if (localAudioTrack && localStreamRef.current) {
+                // Check if local audio track is still being sent
+                const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio' && s.track?.id === localAudioTrack.id);
+                
+                if (audioSenders.length === 0) {
+                    // Re-add the local audio track
+                    console.log('[WebRTC] Re-adding local audio track after screen share stop');
+                    pc.addTrack(localAudioTrack, localStreamRef.current);
+                } else {
+                    console.log('[WebRTC] Local audio track still present after screen share stop');
+                }
+                
+                // Ensure it's enabled (not muted unless user has muted)
+                if (!isMuted) {
+                    localAudioTrack.enabled = true;
+                    console.log('[WebRTC] Ensured local audio track is enabled');
+                }
+            }
+            
+            // Renegotiate to inform peer about track removal
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await sendSignal(peerId, 'offer', { sdp: offer.sdp });
+                console.log('[WebRTC] Sent renegotiation offer after screen share stop to:', peerId);
+            } catch (err) {
+                console.error('[WebRTC] Failed to renegotiate after screen share stop:', err);
+            }
+        }
 
-        screenTracks.forEach((track) => track.stop());
+        // Clean up audio check interval
+        screenTracks.forEach((track) => {
+            const trackWithInterval = track as MediaStreamTrack & { _audioCheckInterval?: ReturnType<typeof setInterval> };
+            if (trackWithInterval._audioCheckInterval) {
+                clearInterval(trackWithInterval._audioCheckInterval);
+            }
+            track.stop();
+        });
         setScreenStream(null);
         setIsScreenSharing(false);
-        console.log('[WebRTC] Screen share stopped');
-    }, [screenStream]);
+        console.log('[WebRTC] Screen share stopped successfully');
+    }, [screenStream, isMuted, sendSignal]);
 
     const startScreenShare = useCallback(async () => {
         if (isScreenSharing) return;
@@ -763,6 +880,28 @@ export function useWebRTC({
 
             // Add screen share tracks to all peer connections with renegotiation
             for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+                // CRITICAL: First, verify the microphone audio track is present and working
+                const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
+                if (localAudioTrack && localStreamRef.current) {
+                    // Check current audio senders
+                    const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+                    const hasMicrophoneTrack = audioSenders.some(s => s.track?.id === localAudioTrack.id);
+                    
+                    if (!hasMicrophoneTrack) {
+                        // Add the microphone audio track if it's missing
+                        pc.addTrack(localAudioTrack, localStreamRef.current);
+                        console.log('[WebRTC] Added missing microphone audio track before screen share:', peerId);
+                    }
+                    
+                    // Ensure it's enabled (unless muted)
+                    if (!isMuted) {
+                        localAudioTrack.enabled = true;
+                    }
+                    console.log('[WebRTC] Microphone audio track status - enabled:', localAudioTrack.enabled, 'readyState:', localAudioTrack.readyState);
+                } else {
+                    console.warn('[WebRTC] No local audio track available during screen share!');
+                }
+
                 // Add screen video track
                 if (screenVideoTrack) {
                     pc.addTrack(screenVideoTrack, stream);
@@ -770,27 +909,31 @@ export function useWebRTC({
                 }
 
                 // Add screen audio track if available (system audio from screen)
+                // Note: This is separate from the microphone - it's the system/tab audio
                 if (screenAudioTrack) {
                     pc.addTrack(screenAudioTrack, stream);
-                    console.log('[WebRTC] Added screen audio track to peer connection:', peerId);
+                    console.log('[WebRTC] Added screen audio track (system audio) to peer connection:', peerId);
                 }
 
-                // IMPORTANT: Ensure microphone audio track is still being sent
-                // The local stream's audio track should already be added, but let's verify
-                const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
-                if (localAudioTrack) {
-                    const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                    const hasLocalAudio = audioSenders.some(s => s.track?.id === localAudioTrack.id);
-                    if (!hasLocalAudio && localStreamRef.current) {
-                        // Re-add the local audio track if it's missing
+                // CRITICAL: Verify microphone audio track is still present and enabled after adding screen tracks
+                const micSenders = pc.getSenders().filter(s => 
+                    s.track?.kind === 'audio' && 
+                    localStreamRef.current?.getAudioTracks().some(t => t.id === s.track?.id)
+                );
+                if (micSenders.length > 0) {
+                    micSenders.forEach(sender => {
+                        if (sender.track && !isMuted) {
+                            sender.track.enabled = true;
+                        }
+                        console.log('[WebRTC] Microphone sender verified after screen tracks:', 
+                            sender.track?.enabled, sender.track?.readyState);
+                    });
+                } else {
+                    console.error('[WebRTC] ⚠️ CRITICAL: Microphone audio sender is MISSING after adding screen tracks!');
+                    // Re-add the microphone track
+                    if (localAudioTrack && localStreamRef.current) {
                         pc.addTrack(localAudioTrack, localStreamRef.current);
-                        console.log('[WebRTC] Re-added local microphone audio track to peer connection:', peerId);
-                    } else {
-                        console.log('[WebRTC] Local microphone audio track already present, enabled:', localAudioTrack.enabled);
-                    }
-                    // Make sure it's enabled (not muted)
-                    if (!isMuted) {
-                        localAudioTrack.enabled = true;
+                        console.log('[WebRTC] Re-added microphone track');
                     }
                 }
 
@@ -802,6 +945,11 @@ export function useWebRTC({
                     await pc.setLocalDescription(offer);
                     await sendSignal(peerId, 'offer', { sdp: offer.sdp });
                     console.log('[WebRTC] Sent renegotiation offer for screen share to:', peerId);
+                    
+                    // Final verification after renegotiation
+                    const allSenders = pc.getSenders();
+                    console.log('[WebRTC] All senders after screen share renegotiation:', 
+                        allSenders.map(s => `${s.track?.kind}:${s.track?.enabled}:${s.track?.id?.substring(0,8) || 'null'}`).join(', '));
                 } catch (err) {
                     console.error('[WebRTC] Failed to renegotiate for screen share:', err);
                 }
@@ -814,6 +962,28 @@ export function useWebRTC({
                     stopScreenShare();
                 };
             }
+
+            // Start periodic audio track verification during screen share
+            const audioCheckInterval = setInterval(() => {
+                const localAudio = localStreamRef.current?.getAudioTracks()[0];
+                if (localAudio) {
+                    console.log('[WebRTC] Screen share audio check - local track:', 
+                        'enabled:', localAudio.enabled, 
+                        'muted:', localAudio.muted, 
+                        'readyState:', localAudio.readyState);
+                    
+                    // Ensure audio remains enabled if not muted
+                    if (!localAudio.enabled && !isMuted) {
+                        console.log('[WebRTC] ⚠️ Audio track disabled during screen share, re-enabling...');
+                        localAudio.enabled = true;
+                    }
+                } else {
+                    console.warn('[WebRTC] ⚠️ No local audio track during screen share!');
+                }
+            }, 3000);
+            
+            // Store interval for cleanup
+            (screenVideoTrack as MediaStreamTrack & { _audioCheckInterval?: ReturnType<typeof setInterval> })._audioCheckInterval = audioCheckInterval;
 
             setIsScreenSharing(true);
         } catch (err) {

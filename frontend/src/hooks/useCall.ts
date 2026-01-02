@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { databases, functions, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
-
+import { ID } from 'appwrite';
 import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
 import { useRealtime } from '@/providers/RealtimeProvider';
-import type { User } from '@/types';
+import type { User, CallLogMetadata } from '@/types';
 
 export type CallStatus = 'ringing' | 'answered' | 'ended' | 'declined';
 export type CallType = 'voice' | 'video';
@@ -30,6 +30,7 @@ interface UseCallReturn {
     isScreenSharing: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
+    remoteStreamVersion: number;
     startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
     answerCall: () => Promise<void>;
     declineCall: () => Promise<void>;
@@ -44,6 +45,55 @@ export function useCall(): UseCallReturn {
     const [currentCall, setCurrentCall] = useState<ActiveCall | null>(null);
     const [incomingCall, setIncomingCall] = useState<ActiveCall | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
+    const callTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const callStartTimeRef = useRef<number | null>(null);
+    const callLogCreatedRef = useRef<boolean>(false);
+
+    // Helper function to create call log message
+    const createCallLogMessage = useCallback(async (
+        channelId: string,
+        callerId: string,
+        receiverId: string,
+        callType: 'voice' | 'video',
+        callStatus: 'ended' | 'missed' | 'declined',
+        duration?: number
+    ) => {
+        if (!user?.$id) return;
+        
+        try {
+            const metadata: CallLogMetadata = {
+                callType,
+                callStatus,
+                duration,
+                callerId,
+                receiverId,
+            };
+
+            await databases.createDocument(
+                DATABASE_ID,
+                COLLECTIONS.MESSAGES,
+                ID.unique(),
+                {
+                    channelId,
+                    authorId: callerId,
+                    content: '', // Content will be generated on display
+                    type: 'call',
+                    replyToId: null,
+                    attachments: [],
+                    metadata: JSON.stringify(metadata),
+                    mentionUserIds: [],
+                    mentionEveryone: false,
+                    isPinned: false,
+                    isEdited: false,
+                    editedAt: null,
+                }
+            );
+            console.log('[useCall] Call log message created:', callStatus, duration ? `${duration}s` : '');
+        } catch (err) {
+            console.error('[useCall] Failed to create call log message:', err);
+        }
+    }, [user?.$id]);
 
     const targetUserId = useMemo(() => {
         const call = currentCall || incomingCall;
@@ -66,10 +116,12 @@ export function useCall(): UseCallReturn {
         isInitiator,
     });
 
-    const callTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
     const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType) => {
         if (!user?.$id) throw new Error('Not authenticated');
+
+        // Reset call tracking
+        callLogCreatedRef.current = false;
+        callStartTimeRef.current = null;
 
         try {
             const execution = await functions.createExecution(
@@ -104,6 +156,7 @@ export function useCall(): UseCallReturn {
 
             setCurrentCall(call as unknown as ActiveCall);
 
+            // Set timeout for missed call (30 seconds)
             callTimeoutRef.current = setTimeout(async () => {
                 if (call.$id) {
                     try {
@@ -113,6 +166,17 @@ export function useCall(): UseCallReturn {
                             call.$id,
                             { status: 'ended' }
                         );
+                        // Create missed call log
+                        if (!callLogCreatedRef.current) {
+                            callLogCreatedRef.current = true;
+                            await createCallLogMessage(
+                                channelId,
+                                user.$id,
+                                friendId,
+                                callType,
+                                'missed'
+                            );
+                        }
                     } catch {
                     }
                 }
@@ -124,7 +188,7 @@ export function useCall(): UseCallReturn {
             console.error('Failed to start call:', err);
             throw err;
         }
-    }, [user?.$id, webRTC]);
+    }, [user?.$id, webRTC, createCallLogMessage]);
 
     const answerCall = useCallback(async () => {
         if (!incomingCall) return;
@@ -133,6 +197,10 @@ export function useCall(): UseCallReturn {
         const callToAnswer = incomingCall;
         const answerTargetUserId = incomingCall.callerId;
         const answerChannelId = incomingCall.channelId;
+
+        // Reset call tracking and start timer
+        callLogCreatedRef.current = false;
+        callStartTimeRef.current = Date.now();
 
         try {
             // Update call status first
@@ -167,19 +235,30 @@ export function useCall(): UseCallReturn {
     const declineCall = useCallback(async () => {
         if (!incomingCall) return;
 
+        const callToDecline = incomingCall;
+
         try {
             await databases.updateDocument(
                 DATABASE_ID,
                 COLLECTIONS.ACTIVE_CALLS,
-                incomingCall.$id,
+                callToDecline.$id,
                 { status: 'declined' }
+            );
+
+            // Create declined call log
+            await createCallLogMessage(
+                callToDecline.channelId,
+                callToDecline.callerId,
+                callToDecline.receiverId,
+                callToDecline.callType,
+                'declined'
             );
 
             setIncomingCall(null);
         } catch (err) {
             console.error('Failed to decline call:', err);
         }
-    }, [incomingCall]);
+    }, [incomingCall, createCallLogMessage]);
 
     const endCall = useCallback(async () => {
         if (callTimeoutRef.current) {
@@ -187,22 +266,45 @@ export function useCall(): UseCallReturn {
             callTimeoutRef.current = null;
         }
 
-        if (currentCall) {
+        const callToEnd = currentCall;
+        
+        if (callToEnd) {
+            // Calculate call duration
+            const duration = callStartTimeRef.current 
+                ? Math.floor((Date.now() - callStartTimeRef.current) / 1000)
+                : 0;
+
             try {
                 await databases.updateDocument(
                     DATABASE_ID,
                     COLLECTIONS.ACTIVE_CALLS,
-                    currentCall.$id,
+                    callToEnd.$id,
                     { status: 'ended' }
                 );
+
+                // Create call ended log (only if call was answered and we haven't created one yet)
+                if (!callLogCreatedRef.current && callToEnd.status === 'answered') {
+                    callLogCreatedRef.current = true;
+                    await createCallLogMessage(
+                        callToEnd.channelId,
+                        callToEnd.callerId,
+                        callToEnd.receiverId,
+                        callToEnd.callType,
+                        'ended',
+                        duration
+                    );
+                }
             } catch {
             }
         }
 
+        // Reset call tracking
+        callStartTimeRef.current = null;
+
         webRTC.leaveChannel();
         setCurrentCall(null);
         setRemoteStream(null);
-    }, [currentCall, webRTC]);
+    }, [currentCall, webRTC, createCallLogMessage]);
 
     const toggleScreenShare = useCallback(async () => {
         if (webRTC.isScreenSharing) {
@@ -239,6 +341,10 @@ export function useCall(): UseCallReturn {
                     clearTimeout(callTimeoutRef.current);
                     callTimeoutRef.current = null;
                 }
+                // Start tracking call duration when answered (for caller side)
+                if (!callStartTimeRef.current) {
+                    callStartTimeRef.current = Date.now();
+                }
                 setCurrentCall(prev => {
                     if (!prev) {
                         return { ...call, status: 'answered' };
@@ -264,6 +370,9 @@ export function useCall(): UseCallReturn {
 
     const participantsSize = webRTC.participants.size;
     const participantIds = Array.from(webRTC.participants.keys()).join(',');
+    
+    // Track changes in audio tracks for proper stream updates
+    const [remoteStreamVersion, setRemoteStreamVersion] = useState(0);
 
     useEffect(() => {
         const participantsArray = Array.from(webRTC.participants.values());
@@ -271,9 +380,18 @@ export function useCall(): UseCallReturn {
         if (participantsArray.length > 0) {
             const participantWithStream = participantsArray.find(p => p.stream);
             if (participantWithStream?.stream) {
-                if (remoteStream !== participantWithStream.stream) {
+                const stream = participantWithStream.stream;
+                const trackIds = stream.getTracks().map(t => t.id).join(',');
+                
+                // Check if this is a new stream OR if tracks have changed
+                if (remoteStream !== stream) {
                     console.log('[useCall] Setting remote stream from participant:', participantWithStream.odId);
-                    setRemoteStream(participantWithStream.stream);
+                    setRemoteStream(stream);
+                    setRemoteStreamVersion(v => v + 1);
+                } else if (remoteStream && trackIds !== remoteStream.getTracks().map(t => t.id).join(',')) {
+                    // Same stream object but tracks changed - force re-render
+                    console.log('[useCall] Remote stream tracks changed, forcing update');
+                    setRemoteStreamVersion(v => v + 1);
                 }
             }
         }
@@ -297,6 +415,7 @@ export function useCall(): UseCallReturn {
         isScreenSharing: webRTC.isScreenSharing,
         localStream: webRTC.localStream,
         remoteStream,
+        remoteStreamVersion,
         startCall,
         answerCall,
         declineCall,
