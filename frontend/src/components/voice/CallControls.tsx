@@ -1,7 +1,3 @@
-/**
- * CallControls Component
- * Control bar for voice/video calls
- */
 import {
     Mic,
     MicOff,
@@ -39,7 +35,6 @@ export function CallControls({
 }: CallControlsProps) {
     return (
         <div className="flex items-center justify-center gap-2 p-4 bg-background-secondary border-t border-background-tertiary">
-            {/* Mute */}
             <ControlButton
                 onClick={onToggleMute}
                 isActive={!isMuted}
@@ -49,7 +44,6 @@ export function CallControls({
                 {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
             </ControlButton>
 
-            {/* Deafen */}
             <ControlButton
                 onClick={onToggleDeafen}
                 isActive={!isDeafened}
@@ -59,7 +53,6 @@ export function CallControls({
                 {isDeafened ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
             </ControlButton>
 
-            {/* Video */}
             <ControlButton
                 onClick={onToggleVideo}
                 isActive={isVideoOn}
@@ -68,7 +61,6 @@ export function CallControls({
                 {isVideoOn ? <Video size={20} /> : <VideoOff size={20} />}
             </ControlButton>
 
-            {/* Screen Share */}
             <ControlButton
                 onClick={onToggleScreenShare}
                 isActive={isScreenSharing}
@@ -77,7 +69,6 @@ export function CallControls({
                 {isScreenSharing ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
             </ControlButton>
 
-            {/* Disconnect */}
             <ControlButton
                 onClick={onDisconnect}
                 isDanger
@@ -89,7 +80,6 @@ export function CallControls({
     );
 }
 
-// Control button sub-component
 function ControlButton({
     children,
     onClick,

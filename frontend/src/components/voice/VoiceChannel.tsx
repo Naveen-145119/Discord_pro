@@ -1,7 +1,3 @@
-/**
- * VoiceChannel Component
- * Voice channel UI with participants list and controls
- */
 import { useEffect } from 'react';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuthStore } from '@/stores/authStore';
@@ -38,7 +34,6 @@ export function VoiceChannel({ channelId, channelName }: VoiceChannelProps) {
         displayName: user?.displayName ?? 'Unknown',
     });
 
-    // Auto-join on mount
     useEffect(() => {
         if (user && connectionState === 'disconnected') {
             joinChannel();
@@ -47,13 +42,12 @@ export function VoiceChannel({ channelId, channelName }: VoiceChannelProps) {
         return () => {
             leaveChannel();
         };
-    }, [user, channelId]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [user, channelId]);
 
     if (!user) return null;
 
     return (
         <div className="flex flex-col h-full bg-background-primary">
-            {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-background-tertiary">
                 <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${connectionState === 'connected' ? 'bg-status-online' :
@@ -69,16 +63,13 @@ export function VoiceChannel({ channelId, channelName }: VoiceChannelProps) {
                 </span>
             </div>
 
-            {/* Error banner */}
             {error && (
                 <div className="p-3 bg-red-500/10 border-b border-red-500/20">
                     <p className="text-sm text-red-400">{error}</p>
                 </div>
             )}
 
-            {/* Participants */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                {/* Self */}
                 <ParticipantItem
                     displayName={user.displayName}
                     isMuted={isMuted}
@@ -89,7 +80,6 @@ export function VoiceChannel({ channelId, channelName }: VoiceChannelProps) {
                     isSelf
                 />
 
-                {/* Others */}
                 {Array.from(participants.values()).map((participant) => (
                     <ParticipantItem
                         key={participant.odId}
@@ -103,7 +93,6 @@ export function VoiceChannel({ channelId, channelName }: VoiceChannelProps) {
                 ))}
             </div>
 
-            {/* Controls */}
             <CallControls
                 isMuted={isMuted}
                 isDeafened={isDeafened}
@@ -119,7 +108,6 @@ export function VoiceChannel({ channelId, channelName }: VoiceChannelProps) {
     );
 }
 
-// Participant item sub-component
 function ParticipantItem({
     displayName,
     isMuted,
@@ -140,7 +128,6 @@ function ParticipantItem({
     return (
         <div className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${isSpeaking ? 'bg-discord-primary/20 ring-2 ring-discord-primary' : 'bg-background-secondary'
             }`}>
-            {/* Avatar */}
             <div className="relative">
                 <div className={`w-10 h-10 rounded-full bg-discord-primary flex items-center justify-center ${isSpeaking ? 'ring-2 ring-green-500' : ''
                     }`}>
@@ -150,7 +137,6 @@ function ParticipantItem({
                 </div>
             </div>
 
-            {/* Name */}
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-text-normal truncate">
                     {displayName}
@@ -158,7 +144,6 @@ function ParticipantItem({
                 </p>
             </div>
 
-            {/* Status icons */}
             <div className="flex items-center gap-1">
                 {isScreenSharing && (
                     <MonitorUp size={16} className="text-green-400" />
