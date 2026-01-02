@@ -1,22 +1,10 @@
-/**
- * TypeScript type definitions for Discord clone
- * Matching Appwrite database schema
- */
 
-// ============================================
-// Base Types
-// ============================================
 
-/** Base Appwrite document properties */
 interface BaseDocument {
     $id: string;
     $createdAt: string;
     $updatedAt: string;
 }
-
-// ============================================
-// User Types
-// ============================================
 
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'offline';
 
@@ -37,14 +25,9 @@ export interface UserSettings {
     dmPrivacy: 'everyone' | 'friends' | 'none';
 }
 
-// ============================================
-// Friend Types
-// ============================================
-
 export interface Friend extends BaseDocument {
     userId1: string;
     userId2: string;
-    // Populated friend user data
     friend?: User;
 }
 
@@ -54,14 +37,9 @@ export interface FriendRequest extends BaseDocument {
     senderId: string;
     receiverId: string;
     status: FriendRequestStatus;
-    // Populated user data
     sender?: User;
     receiver?: User;
 }
-
-// ============================================
-// Server Types
-// ============================================
 
 export interface Server extends BaseDocument {
     name: string;
@@ -85,14 +63,8 @@ export interface ServerMember {
     roleIds: string[];
     joinedAt: string;
     permissionBits: string;
-
-    // Joined user data (populated on fetch)
     user?: User;
 }
-
-// ============================================
-// Channel Types
-// ============================================
 
 export type ChannelType =
     | 'text'
@@ -114,15 +86,9 @@ export interface Channel extends BaseDocument {
     slowmodeSeconds: number;
     userLimit: number | null;
     bitrate: number | null;
-
-    // For DM channels
     participantIds?: string[];
     lastMessageAt?: string | null;
 }
-
-// ============================================
-// Message Types
-// ============================================
 
 export type MessageType = 'default' | 'reply' | 'system' | 'join' | 'leave';
 
@@ -167,27 +133,18 @@ export interface Message extends BaseDocument {
     type: MessageType;
     replyToId: string | null;
     attachments: Attachment[];
-    metadata?: string; // Contains nested JSON for embeds, reactions, mentionRoleIds
-
-    // Derived from metadata
+    metadata?: string;
     embeds: Embed[];
     reactions: Reaction[];
     mentionRoleIds: string[];
-
     mentionUserIds: string[];
     mentionEveryone: boolean;
     isPinned: boolean;
     isEdited: boolean;
     editedAt: string | null;
-
-    // Populated on fetch
     author?: User;
     replyTo?: Message;
 }
-
-// ============================================
-// Role Types
-// ============================================
 
 export interface Role extends BaseDocument {
     serverId: string;
@@ -199,10 +156,6 @@ export interface Role extends BaseDocument {
     isMentionable: boolean;
     iconUrl?: string | null;
 }
-
-// ============================================
-// Voice Types
-// ============================================
 
 export interface VoiceState {
     $id: string;
@@ -218,17 +171,11 @@ export interface VoiceState {
     isStreaming: boolean;
     isVideoOn: boolean;
     sessionId: string;
-
-    // Populated
     user?: User;
 }
 
-// ============================================
-// Invite Types
-// ============================================
-
 export interface Invite {
-    $id: string;  // This is the invite code
+    $id: string;
     $createdAt: string;
     serverId: string;
     channelId: string;
@@ -237,16 +184,10 @@ export interface Invite {
     maxAge: number | null;
     uses: number;
     expiresAt: string | null;
-
-    // Populated
     server?: Server;
     channel?: Channel;
     creator?: User;
 }
-
-// ============================================
-// Typing State Types
-// ============================================
 
 export interface TypingState {
     $id: string;
@@ -257,26 +198,16 @@ export interface TypingState {
     expiresAt: string;
 }
 
-// ============================================
-// DM Channel Types
-// ============================================
-
 export interface DMChannel extends BaseDocument {
     type: 'dm' | 'group_dm';
     participantIds: string[];
-    name: string | null;  // Only for group DMs
-    iconUrl: string | null;  // Only for group DMs
-    ownerId: string | null;  // Only for group DMs
+    name: string | null;
+    iconUrl: string | null;
+    ownerId: string | null;
     lastMessageAt: string | null;
-
-    // Populated
     participants?: User[];
     lastMessage?: Message;
 }
-
-// ============================================
-// API Response Types
-// ============================================
 
 export interface PaginatedResponse<T> {
     documents: T[];
@@ -288,10 +219,6 @@ export interface ApiError {
     code: number;
     type: string;
 }
-
-// ============================================
-// Realtime Event Types
-// ============================================
 
 export type RealtimeEventType =
     | 'create'
