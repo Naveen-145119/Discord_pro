@@ -204,19 +204,12 @@ export function useWebRTC({
                         participantStream = mergedStream;
                     }
                 } else if (track.kind === 'video' && !participantStream.getVideoTracks().some(t => t.id === track.id)) {
-                    // Add new video tracks (screen share) to the existing stream
-                    try {
-                        participantStream.addTrack(track);
-                        console.log('[WebRTC] Added video track to existing participant stream');
-                    } catch (e) {
-                        console.log('[WebRTC] Creating merged stream with new video track');
-                        const mergedStream = new MediaStream();
-                        participantStream.getTracks().forEach(t => mergedStream.addTrack(t));
-                        if (!mergedStream.getTracks().some(t => t.id === track.id)) {
-                            mergedStream.addTrack(track);
-                        }
-                        participantStream = mergedStream;
-                    }
+                    // Add new video tracks (screen share) - ALWAYS create new stream to trigger React update
+                    console.log('[WebRTC] Creating new stream with video track for React to detect change');
+                    const mergedStream = new MediaStream();
+                    participantStream.getTracks().forEach(t => mergedStream.addTrack(t));
+                    mergedStream.addTrack(track);
+                    participantStream = mergedStream;
                 }
 
                 const hasVideoTrack = participantStream.getVideoTracks().length > 0;

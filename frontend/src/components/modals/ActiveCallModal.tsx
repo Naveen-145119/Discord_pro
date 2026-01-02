@@ -285,11 +285,19 @@ export function ActiveCallModal({
         setupAudioWithGain(remoteStream, volume);
 
         // Setup video if present
-        if (remoteVideoRef.current && videoTracks.length > 0) {
-            remoteVideoRef.current.srcObject = remoteStream;
-            remoteVideoRef.current.play().catch((err) => {
-                console.log('[ActiveCallModal] Video autoplay blocked:', err.message);
-            });
+        if (videoTracks.length > 0) {
+            console.log('[ActiveCallModal] Setting up video - tracks:', videoTracks.length,
+                'settings:', videoTracks.map(t => {
+                    const s = t.getSettings();
+                    return `${t.label}:${s.width}x${s.height}:${s.displaySurface || 'camera'}`;
+                }).join(', '));
+            
+            if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = remoteStream;
+                remoteVideoRef.current.play().catch((err) => {
+                    console.log('[ActiveCallModal] Video autoplay blocked:', err.message);
+                });
+            }
         }
 
         // Cleanup
