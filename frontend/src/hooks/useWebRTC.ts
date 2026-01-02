@@ -207,6 +207,16 @@ export function useWebRTC({
         if (signal.fromUserId === userId) return;
         if (signal.toUserId !== 'all' && signal.toUserId !== userId) return;
 
+        // Check if signal has expired (signals are valid for 30 seconds)
+        if (signal.expiresAt) {
+            const expiryTime = new Date(signal.expiresAt).getTime();
+            const now = Date.now();
+            if (now > expiryTime) {
+                console.log('[WebRTC] Skipping EXPIRED signal:', signal.type, 'expired', Math.round((now - expiryTime) / 1000), 'seconds ago');
+                return;
+            }
+        }
+
         // Deduplicate signals - skip if already processed
         const signalId = signal.$id;
         if (signalId && processedSignalIdsRef.current.has(signalId)) {
@@ -457,12 +467,7 @@ export function useWebRTC({
 
             voiceDetectorCleanupRef.current = createVoiceActivityDetector(
                 stream,
-                (speaking) => {
-                    setIsSpeaking(speaking);
-                    if (speaking) {
-                        console.log('[WebRTC] 🎤 Local user is speaking (mic is working)');
-                    }
-                }
+                setIsSpeaking  // Removed verbose logging - voice detector works fine
             );
             
             // Also do a quick audio level check to verify mic is working
@@ -535,22 +540,27 @@ export function useWebRTC({
                 console.log('[WebRTC] Receiver mode - waiting for offer from:', effectiveTargetUserId);
 
                 try {
+                    // Only fetch signals that haven't expired yet
+                    const now = new Date().toISOString();
                     const existingSignals = await databases.listDocuments(
                         DATABASE_ID,
                         COLLECTIONS.WEBRTC_SIGNALS,
                         [
                             Query.equal('channelId', effectiveChannelId),
                             Query.equal('toUserId', userId),
+                            Query.greaterThan('expiresAt', now),  // Only non-expired signals
                             Query.orderAsc('$createdAt')
                         ]
                     );
 
                     if (existingSignals.documents.length > 0) {
-                        console.log('[WebRTC] Found', existingSignals.documents.length, 'existing signals');
+                        console.log('[WebRTC] Found', existingSignals.documents.length, 'valid (non-expired) signals');
                         for (const doc of existingSignals.documents) {
                             const signal = doc as unknown as WebRTCSignal;
                             await handleSignal(signal);
                         }
+                    } else {
+                        console.log('[WebRTC] No valid signals found, waiting for new ones via realtime');
                     }
                 } catch (fetchErr) {
                     console.error('[WebRTC] Failed to fetch existing signals:', fetchErr);
