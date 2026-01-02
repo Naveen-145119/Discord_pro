@@ -6,7 +6,7 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { client, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { client, functions, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 import {
     createPeerConnection,
     getUserMedia,
@@ -19,7 +19,7 @@ import {
     type CallParticipant,
     type WebRTCSignal,
 } from '@/lib/webrtc';
-import { ID } from 'appwrite';
+// ID import removed - no longer using direct database writes
 
 // Use COLLECTIONS constant for consistency
 const SIGNALS_COLLECTION = COLLECTIONS.WEBRTC_SIGNALS;
@@ -83,28 +83,26 @@ export function useWebRTC({
     const voiceDetectorCleanupRef = useRef<(() => void) | null>(null);
 
     /**
-     * Create signaling document in Appwrite
+     * Send signaling message via webrtc-signal function
      */
     const sendSignal = useCallback(async (
         toUserId: string,
         type: WebRTCSignal['type'],
         data: { sdp?: string; candidate?: string }
     ) => {
-        const expiresAt = new Date(Date.now() + 30_000).toISOString(); // 30s TTL
-
-        await databases.createDocument(
-            DATABASE_ID,
-            SIGNALS_COLLECTION,
-            ID.unique(),
-            {
+        await functions.createExecution(
+            'webrtc-signal',
+            JSON.stringify({
+                action: type,
                 channelId,
-                fromUserId: userId,
-                toUserId,
-                type,
-                sdp: data.sdp ?? null,
-                candidate: data.candidate ?? null,
-                expiresAt,
-            }
+                userId,
+                data: {
+                    targetUserId: toUserId,
+                    sdp: data.sdp,
+                    candidate: data.candidate ? JSON.parse(data.candidate) : undefined
+                }
+            }),
+            false
         );
     }, [channelId, userId]);
 
@@ -245,6 +243,14 @@ export function useWebRTC({
             const stream = await getUserMedia(false);
             setLocalStream(stream);
 
+            // Register voice state with backend
+            await functions.createExecution('webrtc-signal', JSON.stringify({
+                action: 'join',
+                channelId,
+                userId,
+                data: {}
+            }), false);
+
             // Setup voice activity detection
             voiceDetectorCleanupRef.current = createVoiceActivityDetector(
                 stream,
@@ -316,6 +322,14 @@ export function useWebRTC({
      * Leave voice channel
      */
     const leaveChannel = useCallback(() => {
+        // Notify backend of leaving (fire and forget)
+        functions.createExecution('webrtc-signal', JSON.stringify({
+            action: 'leave',
+            channelId,
+            userId,
+            data: {}
+        }), false).catch(() => { });
+
         // Stop local stream
         localStream?.getTracks().forEach((track) => track.stop());
         setLocalStream(null);
@@ -461,9 +475,20 @@ export function useWebRTC({
     // Cleanup on unmount
     useEffect(() => {
         return () => {
-            leaveChannel();
+            // Stop local stream
+            localStream?.getTracks().forEach((track) => track.stop());
+            // Stop screen share
+            screenStream?.getTracks().forEach((track) => track.stop());
+            // Close all peer connections
+            peerConnectionsRef.current.forEach((pc) => pc.close());
+            peerConnectionsRef.current.clear();
+            // Unsubscribe from Realtime
+            unsubscribeRef.current?.();
+            // Cleanup voice detector
+            voiceDetectorCleanupRef.current?.();
         };
-    }, [leaveChannel]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return {
         connectionState,

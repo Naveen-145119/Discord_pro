@@ -85,7 +85,22 @@ export function useCall(): UseCallReturn {
                 })
             );
 
-            const response = JSON.parse(execution.responseBody);
+            // Check execution status
+            if (execution.status === 'failed') {
+                throw new Error('Function execution failed: ' + (execution.responseBody || execution.errors || 'Unknown error'));
+            }
+
+            // Safely parse response
+            if (!execution.responseBody) {
+                throw new Error('Empty response from server. Please log in again.');
+            }
+
+            let response;
+            try {
+                response = JSON.parse(execution.responseBody);
+            } catch {
+                throw new Error('Invalid server response');
+            }
 
             if (!response.success) {
                 throw new Error(response.error || 'Failed to create call');
