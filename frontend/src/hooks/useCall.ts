@@ -80,7 +80,7 @@ export function useCall(): UseCallReturn {
                     content: '', // Content will be generated on display
                     type: 'system', // Using 'system' since 'call' is not in Appwrite schema
                     replyToId: null,
-                    attachments: [],
+                    attachments: '', // Empty string - attachments is a string field
                     metadata: JSON.stringify(metadata),
                     mentionUserIds: [],
                     mentionEveryone: false,

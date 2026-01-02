@@ -323,21 +323,12 @@ export function useWebRTC({
 
                     const stream = localStreamRef.current;
                     if (stream) {
-                        const existingSenders = pc.getSenders();
-                        const audioTrack = stream.getAudioTracks()[0];
-                        
-                        // Ensure audio track is added and enabled
-                        if (audioTrack) {
-                            const hasAudioSender = existingSenders.some(s => s.track?.id === audioTrack.id);
-                            if (!hasAudioSender) {
-                                console.log('[WebRTC] Adding audio track to PC during renegotiation:', audioTrack.enabled, audioTrack.readyState);
-                                pc.addTrack(audioTrack, stream);
-                            }
-                        }
-                        
-                        // Add any other tracks
+                        // Add all tracks that don't already have a sender
+                        // Get fresh list of senders each time to avoid duplicate adds
                         stream.getTracks().forEach((track) => {
-                            if (!existingSenders.find(s => s.track?.id === track.id)) {
+                            const currentSenders = pc.getSenders();
+                            const hasSender = currentSenders.some(s => s.track?.id === track.id);
+                            if (!hasSender) {
                                 console.log('[WebRTC] Adding local track to PC:', track.kind, 'enabled:', track.enabled, 'readyState:', track.readyState);
                                 pc.addTrack(track, stream);
                             }
