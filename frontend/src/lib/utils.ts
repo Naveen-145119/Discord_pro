@@ -1,40 +1,29 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-/**
- * Utility for merging Tailwind CSS classes with clsx
- * Handles conflicts and deduplication
- */
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
-/**
- * Format a date for display
- */
 export function formatDate(date: string | Date): string {
     const d = typeof date === 'string' ? new Date(date) : date;
     const now = new Date();
     const diff = now.getTime() - d.getTime();
 
-    // Less than a minute
     if (diff < 60000) {
         return 'Just now';
     }
 
-    // Less than an hour
     if (diff < 3600000) {
         const minutes = Math.floor(diff / 60000);
         return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
     }
 
-    // Less than a day
     if (diff < 86400000) {
         const hours = Math.floor(diff / 3600000);
         return `${hours} hour${hours > 1 ? 's' : ''} ago`;
     }
 
-    // Check if same year
     if (d.getFullYear() === now.getFullYear()) {
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
@@ -42,9 +31,6 @@ export function formatDate(date: string | Date): string {
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-/**
- * Format a timestamp for message display
- */
 export function formatMessageTime(date: string | Date): string {
     const d = typeof date === 'string' ? new Date(date) : date;
     return d.toLocaleTimeString('en-US', {
@@ -54,9 +40,6 @@ export function formatMessageTime(date: string | Date): string {
     });
 }
 
-/**
- * Format file size for display
- */
 export function formatFileSize(bytes: number): string {
     if (bytes === 0) return '0 B';
 
@@ -67,17 +50,11 @@ export function formatFileSize(bytes: number): string {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-/**
- * Truncate text with ellipsis
- */
 export function truncate(text: string, maxLength: number): string {
     if (text.length <= maxLength) return text;
     return text.slice(0, maxLength - 3) + '...';
 }
 
-/**
- * Generate initials from a name
- */
 export function getInitials(name: string): string {
     return name
         .split(' ')
@@ -87,9 +64,6 @@ export function getInitials(name: string): string {
         .slice(0, 2);
 }
 
-/**
- * Debounce function
- */
 export function debounce<T extends (...args: unknown[]) => unknown>(
     fn: T,
     delay: number
@@ -102,9 +76,6 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
     };
 }
 
-/**
- * Throttle function
- */
 export function throttle<T extends (...args: unknown[]) => unknown>(
     fn: T,
     limit: number
@@ -120,9 +91,6 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
     };
 }
 
-/**
- * Copy text to clipboard
- */
 export async function copyToClipboard(text: string): Promise<boolean> {
     try {
         await navigator.clipboard.writeText(text);
@@ -132,21 +100,18 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     }
 }
 
-/**
- * Generate a random color for user/role
- */
 export function getRandomColor(): string {
     const colors = [
-        '#5865F2', // Blurple
-        '#57F287', // Green
-        '#FEE75C', // Yellow
-        '#EB459E', // Fuchsia
-        '#ED4245', // Red
-        '#3498DB', // Blue
-        '#9B59B6', // Purple
-        '#1ABC9C', // Teal
-        '#E67E22', // Orange
-        '#11806A', // Dark teal
+        '#5865F2',
+        '#57F287',
+        '#FEE75C',
+        '#EB459E',
+        '#ED4245',
+        '#3498DB',
+        '#9B59B6',
+        '#1ABC9C',
+        '#E67E22',
+        '#11806A',
     ];
     return colors[Math.floor(Math.random() * colors.length)];
 }

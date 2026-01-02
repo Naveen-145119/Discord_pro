@@ -5,15 +5,12 @@ import { ID, Query } from 'appwrite';
 import { DEFAULT_PERMISSIONS } from '@/lib/permissions';
 
 interface ServerState {
-    // State
     servers: Server[];
     currentServer: Server | null;
     members: ServerMember[];
     channels: Channel[];
     isLoading: boolean;
     error: string | null;
-
-    // Actions
     fetchServers: (userId: string) => Promise<void>;
     fetchServerDetails: (serverId: string) => Promise<void>;
     createServer: (name: string, ownerId: string) => Promise<Server>;
@@ -37,7 +34,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            // Get all server memberships for this user
             const memberships = await databases.listDocuments(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
@@ -49,7 +45,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 return;
             }
 
-            // Fetch all servers the user is a member of
             const serverIds = memberships.documents.map((m) => (m as unknown as { serverId: string }).serverId);
             const servers = await databases.listDocuments(
                 DATABASE_ID,
@@ -68,14 +63,12 @@ export const useServerStore = create<ServerState>((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            // Fetch server
             const server = await databases.getDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVERS,
                 serverId
             ) as unknown as Server;
 
-            // Fetch channels
             const channels = await databases.listDocuments(
                 DATABASE_ID,
                 COLLECTIONS.CHANNELS,
@@ -86,7 +79,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 ]
             );
 
-            // Fetch members
             const members = await databases.listDocuments(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
@@ -109,7 +101,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            // Create server
             const server = await databases.createDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVERS,
@@ -127,7 +118,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 }
             ) as unknown as Server;
 
-            // Create default @everyone role
             await databases.createDocument(
                 DATABASE_ID,
                 COLLECTIONS.ROLES,
@@ -143,7 +133,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 }
             );
 
-            // Create default text channel
             const defaultChannel = await databases.createDocument(
                 DATABASE_ID,
                 COLLECTIONS.CHANNELS,
@@ -161,7 +150,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 }
             ) as unknown as Channel;
 
-            // Update server with default channel
             await databases.updateDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVERS,
@@ -169,7 +157,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 { defaultChannelId: defaultChannel.$id }
             );
 
-            // Add owner as member
             await databases.createDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
@@ -184,7 +171,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 }
             );
 
-            // Update local state
             set((state) => ({
                 servers: [...state.servers, { ...server, defaultChannelId: defaultChannel.$id }],
                 isLoading: false,
@@ -235,7 +221,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
     joinServer: async (serverId, userId) => {
         try {
-            // Check if already a member
             const existing = await databases.listDocuments(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
@@ -250,7 +235,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 throw new Error('Already a member of this server');
             }
 
-            // Add as member
             await databases.createDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
@@ -265,7 +249,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 }
             );
 
-            // Increment member count
             const server = await databases.getDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVERS,
@@ -279,7 +262,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 { memberCount: server.memberCount + 1 }
             );
 
-            // Refresh servers list
             await get().fetchServers(userId);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to join server';
@@ -290,7 +272,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
     leaveServer: async (serverId, userId) => {
         try {
-            // Find membership
             const memberships = await databases.listDocuments(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
@@ -305,7 +286,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 throw new Error('Not a member of this server');
             }
 
-            // Check if owner
             const server = await databases.getDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVERS,
@@ -316,14 +296,12 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 throw new Error('Server owner cannot leave. Transfer ownership or delete the server.');
             }
 
-            // Remove membership
             await databases.deleteDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVER_MEMBERS,
                 memberships.documents[0].$id
             );
 
-            // Decrement member count
             await databases.updateDocument(
                 DATABASE_ID,
                 COLLECTIONS.SERVERS,
@@ -331,7 +309,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 { memberCount: Math.max(0, server.memberCount - 1) }
             );
 
-            // Update local state
             set((state) => ({
                 servers: state.servers.filter((s) => s.$id !== serverId),
                 currentServer: state.currentServer?.$id === serverId ? null : state.currentServer,

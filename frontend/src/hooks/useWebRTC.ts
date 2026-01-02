@@ -143,6 +143,16 @@ export function useWebRTC({
         pc.ontrack = (event) => {
             console.log('[WebRTC] ontrack event received:', event.track.kind, 'from peer:', peerId);
             const [stream] = event.streams;
+            
+            // Log detailed track info
+            const track = event.track;
+            console.log('[WebRTC] Received track details:', {
+                kind: track.kind,
+                id: track.id,
+                enabled: track.enabled,
+                muted: track.muted,
+                readyState: track.readyState,
+            });
 
             if (!stream) {
                 console.warn('[WebRTC] ontrack: No stream in event!');
