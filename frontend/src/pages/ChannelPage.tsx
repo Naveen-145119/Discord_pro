@@ -20,9 +20,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { formatMessageTime } from '@/lib/utils';
 import type { Message as MessageType } from '@/types';
 
-/**
- * Channel page - shows messages and input for a channel
- */
 export function ChannelPage() {
     const { channelId } = useParams<{ channelId: string }>();
     const { user } = useAuthStore();
@@ -42,10 +39,8 @@ export function ChannelPage() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-    // Find current channel
     const currentChannel = channels.find((c: { $id: string }) => c.$id === channelId);
 
-    // Set current channel and fetch messages
     useEffect(() => {
         if (channelId && currentChannel) {
             setCurrentChannel(currentChannel);
@@ -57,7 +52,6 @@ export function ChannelPage() {
         };
     }, [channelId, currentChannel, setCurrentChannel, fetchMessages, clearMessages]);
 
-    // Subscribe to realtime updates
     useEffect(() => {
         if (!channelId) return;
 
@@ -67,14 +61,12 @@ export function ChannelPage() {
         };
     }, [channelId]);
 
-    // Scroll to bottom on new messages
     useEffect(() => {
         if (messagesEndRef.current && messages.length > 0) {
             messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [messages.length]);
 
-    // Handle send message
     const handleSend = async () => {
         if (!inputValue.trim() || !channelId || !user?.$id) return;
 
@@ -84,12 +76,10 @@ export function ChannelPage() {
         try {
             await sendMessage(channelId, user.$id, content);
         } catch {
-            // Restore input on error
             setInputValue(content);
         }
     };
 
-    // Handle key press
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -97,7 +87,6 @@ export function ChannelPage() {
         }
     };
 
-    // Load more messages on scroll to top
     const handleScroll = () => {
         const container = messagesContainerRef.current;
         if (!container || isLoading || !hasMore) return;
@@ -118,7 +107,6 @@ export function ChannelPage() {
 
     return (
         <div className="flex-1 flex flex-col bg-background-primary">
-            {/* Header */}
             <div className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low">
                 <div className="flex items-center gap-2">
                     <Hash size={24} className="text-channel-icon" />
@@ -162,7 +150,6 @@ export function ChannelPage() {
                 </div>
             </div>
 
-            {/* Messages */}
             <div
                 ref={messagesContainerRef}
                 onScroll={handleScroll}
@@ -197,7 +184,6 @@ export function ChannelPage() {
                 )}
             </div>
 
-            {/* Input */}
             <div className="px-4 pb-6">
                 <div className="flex items-center gap-2 bg-background-tertiary rounded-lg px-4">
                     <button className="text-interactive-normal hover:text-interactive-hover py-2.5">
@@ -240,18 +226,15 @@ export function ChannelPage() {
     );
 }
 
-// Message item component
 function MessageItem({ message }: { message: MessageType }) {
     return (
         <div className="message-container group">
-            {/* Avatar */}
             <div className="avatar w-10 h-10 mt-0.5 flex-shrink-0 bg-discord-primary">
                 <span className="text-sm font-medium text-white">
                     {message.authorId?.charAt(0) || '?'}
                 </span>
             </div>
 
-            {/* Content */}
             <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2">
                     <span className="font-medium text-text-heading hover:underline cursor-pointer">
