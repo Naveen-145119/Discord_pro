@@ -100,6 +100,30 @@ export default async ({ req, res, log, error }) => {
                     }
                 }
 
+                // Clean up expired signals for this channel to prevent stale signal buildup
+                try {
+                    const now = new Date().toISOString();
+                    const expiredSignals = await databases.listDocuments(DATABASE_ID, 'webrtc_signals', [
+                        Query.equal('channelId', channelId),
+                        Query.lessThan('expiresAt', now),
+                        Query.limit(100)
+                    ]);
+                    
+                    for (const signal of expiredSignals.documents) {
+                        try {
+                            await databases.deleteDocument(DATABASE_ID, 'webrtc_signals', signal.$id);
+                        } catch {
+                            // Ignore deletion errors
+                        }
+                    }
+                    
+                    if (expiredSignals.documents.length > 0) {
+                        log(`Cleaned up ${expiredSignals.documents.length} expired signals for channel ${channelId}`);
+                    }
+                } catch (cleanupErr) {
+                    log(`Signal cleanup error (non-fatal): ${cleanupErr.message}`);
+                }
+
                 const voiceState = await databases.createDocument(
                     DATABASE_ID,
                     'voice_states',
