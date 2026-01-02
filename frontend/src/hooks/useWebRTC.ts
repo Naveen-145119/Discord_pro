@@ -30,6 +30,7 @@ interface UseWebRTCProps {
     displayName: string;
     mode?: 'channel' | 'dm'; //Channel for multi-party, DM for 1:1 calls
     targetUserId?: string; // Required for DM mode - the other user's ID
+    isInitiator?: boolean; // True for caller, false for receiver (receiver waits for offer)
 }
 
 interface UseWebRTCReturn {
@@ -60,6 +61,7 @@ export function useWebRTC({
     displayName: _displayName,
     mode = 'channel',
     targetUserId,
+    isInitiator = true, // Default to true for backward compatibility
 }: UseWebRTCProps): UseWebRTCReturn {
     // Connection state
     const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -272,43 +274,47 @@ export function useWebRTC({
                 }
             });
 
-            // Announce presence
-            if (mode === 'dm' && targetUserId) {
-                // DM mode: Create targeted peer connection to the other user
-                const pc = createPeerConnection();
+            // Only initiator (caller) sends offer
+            // Receiver will get offer via Realtime and respond with answer in handleSignal
+            if (isInitiator) {
+                if (mode === 'dm' && targetUserId) {
+                    // DM mode: Create targeted peer connection to the other user
+                    const pc = createPeerConnection();
 
-                // Add local tracks BEFORE creating offer (critical for WebRTC)
-                stream.getTracks().forEach((track) => {
-                    pc.addTrack(track, stream);
-                });
+                    // Add local tracks BEFORE creating offer (critical for WebRTC)
+                    stream.getTracks().forEach((track) => {
+                        pc.addTrack(track, stream);
+                    });
 
-                setupPeerConnection(pc, targetUserId);
-                peerConnectionsRef.current.set(targetUserId, pc);
+                    setupPeerConnection(pc, targetUserId);
+                    peerConnectionsRef.current.set(targetUserId, pc);
 
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
 
-                await sendSignal(targetUserId, 'offer', {
-                    sdp: offer.sdp,
-                });
-            } else {
-                // Channel mode: Broadcast offer to all participants
-                const pc = createPeerConnection();
+                    await sendSignal(targetUserId, 'offer', {
+                        sdp: offer.sdp,
+                    });
+                } else {
+                    // Channel mode: Broadcast offer to all participants
+                    const pc = createPeerConnection();
 
-                // Add local tracks BEFORE creating offer (critical for WebRTC)
-                stream.getTracks().forEach((track) => {
-                    pc.addTrack(track, stream);
-                });
+                    // Add local tracks BEFORE creating offer (critical for WebRTC)
+                    stream.getTracks().forEach((track) => {
+                        pc.addTrack(track, stream);
+                    });
 
-                setupPeerConnection(pc, 'all');
+                    setupPeerConnection(pc, 'all');
 
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
 
-                await sendSignal('all', 'offer', {
-                    sdp: offer.sdp,
-                });
+                    await sendSignal('all', 'offer', {
+                        sdp: offer.sdp,
+                    });
+                }
             }
+            // If not initiator (receiver), we just set up media and wait for offer
 
             setConnectionState('connected');
         } catch (err) {
@@ -316,7 +322,7 @@ export function useWebRTC({
             setError(message);
             setConnectionState('failed');
         }
-    }, [channelId, connectionState, handleSignal, sendSignal, setupPeerConnection, mode, targetUserId]);
+    }, [channelId, connectionState, handleSignal, sendSignal, setupPeerConnection, mode, targetUserId, isInitiator]);
 
     /**
      * Leave voice channel
