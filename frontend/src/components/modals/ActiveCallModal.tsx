@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { 
-    Phone, 
+    Phone,
+    PhoneOff,
     Video, 
     MonitorUp, 
     Mic, 
@@ -476,8 +477,10 @@ export function ActiveCallModal({
                 </div>
             )}
 
-            {/* Top Bar */}
-            <div className="p-4 flex items-center justify-between bg-[#2b2d31] z-20">
+            {/* Top Bar - Hide in fullscreen with screen share for immersive view */}
+            <div className={`p-4 flex items-center justify-between bg-[#2b2d31] z-20 ${
+                isFullscreen && isRemoteScreenShare ? 'absolute top-0 left-0 right-0 opacity-0 hover:opacity-100 transition-opacity duration-300 bg-gradient-to-b from-black/80 to-transparent' : ''
+            }`}>
                 <div className="flex items-center gap-3">
                     <div className="relative">
                         <div className="w-10 h-10 rounded-full bg-discord-primary flex items-center justify-center overflow-hidden">
@@ -568,11 +571,13 @@ export function ActiveCallModal({
             </div>
 
             {/* Main Video Area - Takes full remaining space with padding for controls */}
-            <div className="flex-1 relative flex items-center justify-center bg-[#1e1f22] p-4 pb-24 overflow-hidden">
+            <div className={`flex-1 relative flex items-center justify-center bg-[#1e1f22] overflow-hidden ${
+                isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4 pb-24'
+            }`}>
                 {hasRemoteVideo ? (
                     <div className="relative w-full h-full flex items-center justify-center">
-                        {/* Screen share indicator banner */}
-                        {isRemoteScreenShare && (
+                        {/* Screen share indicator banner - hide in fullscreen for cleaner view */}
+                        {isRemoteScreenShare && !isFullscreen && (
                             <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-4 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm shadow-lg">
                                 <MonitorUp size={16} />
                                 {friend.displayName} is sharing their screen
@@ -582,17 +587,47 @@ export function ActiveCallModal({
                             ref={remoteVideoRef}
                             autoPlay
                             playsInline
-                            className={`rounded-lg ${
+                            className={`${isFullscreen && isRemoteScreenShare ? '' : 'rounded-lg'} ${
                                 isRemoteScreenShare 
                                     ? 'w-full h-full object-contain' 
                                     : 'max-w-full max-h-full object-contain'
                             }`}
                             style={{
-                                // For screen share, fill the container while maintaining aspect ratio
-                                maxHeight: isRemoteScreenShare ? '100%' : undefined,
-                                maxWidth: isRemoteScreenShare ? '100%' : undefined,
+                                // For fullscreen screen share, fill entire screen
+                                maxHeight: '100%',
+                                maxWidth: '100%',
+                                // In fullscreen with screen share, use object-contain to show full screen
+                                objectFit: isFullscreen && isRemoteScreenShare ? 'contain' : 'contain',
                             }}
                         />
+                        {/* Fullscreen controls overlay - show on hover in fullscreen */}
+                        {isFullscreen && (
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 opacity-0 hover:opacity-100 transition-opacity duration-300">
+                                <div className="flex items-center justify-center gap-4">
+                                    <button
+                                        onClick={onToggleMute}
+                                        className={`p-3 rounded-full ${isMuted ? 'bg-red-500' : 'bg-gray-700'} text-white hover:opacity-80 transition-opacity`}
+                                        title={isMuted ? 'Unmute' : 'Mute'}
+                                    >
+                                        {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                                    </button>
+                                    <button
+                                        onClick={toggleFullscreen}
+                                        className="p-3 rounded-full bg-gray-700 text-white hover:opacity-80 transition-opacity"
+                                        title="Exit Fullscreen"
+                                    >
+                                        <Minimize2 size={20} />
+                                    </button>
+                                    <button
+                                        onClick={onEndCall}
+                                        className="p-3 rounded-full bg-red-500 text-white hover:opacity-80 transition-opacity"
+                                        title="End Call"
+                                    >
+                                        <PhoneOff size={20} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center">
@@ -645,8 +680,10 @@ export function ActiveCallModal({
                 )}
             </div>
 
-            {/* Control Bar - Always visible, floating at bottom */}
-            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1e1f22] via-[#1e1f22]/95 to-transparent">
+            {/* Control Bar - Always visible, floating at bottom. In fullscreen with screen share, show on hover */}
+            <div className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1e1f22] via-[#1e1f22]/95 to-transparent ${
+                isFullscreen && isRemoteScreenShare ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : ''
+            }`}>
                 <div className="flex items-center justify-center gap-3">
                     {/* Mute */}
                     <button

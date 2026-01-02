@@ -161,9 +161,37 @@ export function useWebRTC({
                 streamId: stream?.id,
             });
 
-            // Monitor track state changes
+            // Monitor track state changes - IMPORTANT: Remove track from participant when it ends
             track.onended = () => {
                 console.log('[WebRTC] Remote track ENDED:', track.kind, 'from peer:', peerId);
+                // Remove the ended track from participant's stream
+                setParticipants((prev) => {
+                    const updated = new Map(prev);
+                    const existing = updated.get(peerId);
+                    if (existing?.stream) {
+                        // Create new stream without the ended track
+                        const newStream = new MediaStream();
+                        existing.stream.getTracks().forEach(t => {
+                            if (t.id !== track.id && t.readyState === 'live') {
+                                newStream.addTrack(t);
+                            }
+                        });
+                        
+                        const hasVideoTrack = newStream.getVideoTracks().length > 0;
+                        const hasAudioTrack = newStream.getAudioTracks().length > 0;
+                        
+                        console.log('[WebRTC] Updated participant after track ended:', peerId,
+                            'audio:', hasAudioTrack, 'video:', hasVideoTrack);
+                        
+                        updated.set(peerId, {
+                            ...existing,
+                            stream: newStream,
+                            isVideoOn: hasVideoTrack,
+                            isScreenSharing: hasVideoTrack ? existing.isScreenSharing : false,
+                        });
+                    }
+                    return updated;
+                });
             };
             track.onmute = () => {
                 console.log('[WebRTC] Remote track MUTED:', track.kind, 'from peer:', peerId);
