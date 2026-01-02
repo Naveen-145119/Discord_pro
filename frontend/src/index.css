@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== Discord Scrollbar Styling ===== */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -26,12 +27,27 @@
   border-radius: 4px;
 }
 
+/* Thin scrollbars for sidebars */
+.thin-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+.thin-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: #1a1b1e;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: #1a1b1e #2b2d31;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -55,82 +71,182 @@ body {
   outline-offset: 2px;
 }
 
+/* ===== Discord Animation Keyframes ===== */
+@keyframes discord-tooltip-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes discord-pill-grow {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+
+  to {
+    height: 20px;
+    opacity: 1;
+  }
+}
+
+@keyframes discord-pulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes discord-shake {
+
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  25% {
+    transform: rotate(-3deg);
+  }
+
+  75% {
+    transform: rotate(3deg);
+  }
+}
+
 @layer components {
+
+  /* ===== Buttons ===== */
   .btn-primary {
-    @apply bg-discord-primary text-white font-medium py-2 px-4 rounded-md 
-           hover:bg-[#4752C4] active:bg-[#3C45A5] 
-           transition-colors duration-150 
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-discord-primary text-white font-medium py-2 px-4 rounded-md hover:bg-[#4752C4] active:bg-[#3C45A5] transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
   .btn-secondary {
-    @apply bg-[#4E5058] text-white font-medium py-2 px-4 rounded-md 
-           hover:bg-[#6D6F78] active:bg-[#4E5058] 
-           transition-colors duration-150 
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-[#4E5058] text-white font-medium py-2 px-4 rounded-md hover:bg-[#6D6F78] active:bg-[#4E5058] transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
   .btn-danger {
-    @apply bg-discord-red text-white font-medium py-2 px-4 rounded-md 
-           hover:bg-[#A12D2F] active:bg-[#8B2729] 
-           transition-colors duration-150 
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-discord-red text-white font-medium py-2 px-4 rounded-md hover:bg-[#A12D2F] active:bg-[#8B2729] transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
   .btn-link {
-    @apply bg-transparent text-text-link font-medium py-2 px-4 
-           hover:underline 
-           transition-colors duration-150;
+    @apply bg-transparent text-text-link font-medium py-2 px-4 hover:underline transition-colors duration-150;
   }
-  
+
+  /* ===== Inputs ===== */
   .input-field {
-    @apply bg-background-tertiary text-text-normal 
-           border-none rounded-md px-3 py-2 
-           placeholder:text-text-muted 
-           focus:outline-none focus:ring-2 focus:ring-discord-primary;
+    @apply bg-background-tertiary text-text-normal border-none rounded-md px-3 py-2 placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-discord-primary;
   }
-  
-  .channel-item {
-    @apply flex items-center gap-2 px-2 py-1.5 rounded-md 
-           text-channel-text cursor-pointer 
-           hover:bg-background-modifier-hover hover:text-interactive-hover 
-           transition-colors duration-150;
-  }
-  
-  .channel-item.active {
-    @apply bg-background-modifier-active text-interactive-active;
-  }
-  
+
+  /* ===== Server Icon - Discord Exact ===== */
   .server-icon {
-    @apply w-12 h-12 rounded-[24px] bg-background-primary 
-           flex items-center justify-center cursor-pointer 
-           transition-all duration-200 
-           hover:rounded-[16px] hover:bg-discord-primary;
+    @apply w-12 h-12 bg-background-primary flex items-center justify-center cursor-pointer overflow-hidden;
+    border-radius: 50%;
+    transition: border-radius 0.2s ease-out, background-color 0.2s ease-out;
   }
-  
+
+  .server-icon:hover {
+    border-radius: 35%;
+    @apply bg-discord-primary;
+  }
+
   .server-icon.active {
-    @apply rounded-[16px] bg-discord-primary;
+    border-radius: 35%;
+    @apply bg-discord-primary;
   }
-  
+
+  /* ===== Channel Item ===== */
+  .channel-item {
+    @apply flex items-center gap-2 px-2 py-1.5 rounded-md text-channel-text cursor-pointer;
+    transition: background-color 0.1s ease, color 0.1s ease;
+  }
+
+  .channel-item:hover {
+    background-color: #35373C;
+    @apply text-interactive-hover;
+  }
+
+  .channel-item.active {
+    background-color: #3F4147;
+    @apply text-interactive-active;
+  }
+
+  /* ===== Message Container ===== */
   .message-container {
-    @apply flex gap-4 px-4 py-0.5 
-           hover:bg-background-modifier-hover;
+    @apply flex gap-4 px-4 py-0.5;
+    transition: background-color 0.05s ease;
   }
-  
+
+  .message-container:hover {
+    background-color: rgba(4, 4, 5, 0.07);
+  }
+
+  /* ===== Avatar ===== */
   .avatar {
-    @apply rounded-full bg-background-secondary 
-           flex items-center justify-center overflow-hidden;
+    @apply rounded-full bg-background-secondary flex items-center justify-center overflow-hidden;
   }
-  
+
+  /* ===== Tooltip - Discord Style ===== */
   .tooltip {
-    @apply absolute z-50 px-3 py-2 text-sm font-medium 
-           bg-background-floating text-text-normal 
-           rounded-md shadow-elevation-high 
-           pointer-events-none opacity-0 
-           transition-opacity duration-100;
+    @apply absolute z-50 px-3 py-2 text-sm font-medium bg-background-floating text-text-normal rounded-md shadow-elevation-high pointer-events-none;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.1s ease, transform 0.1s ease;
   }
-  
+
   .tooltip.visible {
-    @apply opacity-100;
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* ===== Discord Pill Indicator ===== */
+  .server-pill {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%) translateX(-8px);
+    width: 4px;
+    background-color: white;
+    border-radius: 0 4px 4px 0;
+    transition: height 0.2s ease;
+  }
+
+  .server-pill.active {
+    height: 40px;
+  }
+
+  .server-pill.hover {
+    height: 20px;
+  }
+
+  /* ===== Category Chevron Animation ===== */
+  .category-chevron {
+    transition: transform 0.2s ease;
+  }
+
+  .category-chevron.collapsed {
+    transform: rotate(-90deg);
+  }
+
+  /* ===== Notification Badge ===== */
+  .notification-badge {
+    @apply absolute -bottom-0.5 -right-0.5 min-w-[18px] h-[18px] bg-discord-red text-white text-xs font-bold rounded-full flex items-center justify-center px-1 border-4 border-background-tertiary;
+  }
+
+  /* ===== Unread Pill ===== */
+  .unread-pill {
+    @apply absolute left-0 w-1 h-2 bg-white rounded-r-full;
+    top: 50%;
+    transform: translateY(-50%) translateX(-8px);
   }
 }

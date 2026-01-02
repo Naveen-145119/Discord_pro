@@ -20,11 +20,14 @@ export default {
           secondary: '#2B2D31',
           tertiary: '#1E1F22',
           floating: '#111214',
+          'user-panel': '#232428',
           modifier: {
             hover: 'rgba(79, 84, 92, 0.16)',
             active: 'rgba(79, 84, 92, 0.24)',
             selected: 'rgba(79, 84, 92, 0.32)',
           },
+          'hover-solid': '#35373C',
+          'active-solid': '#3F4147',
         },
         text: {
           normal: '#DBDEE1',
@@ -77,8 +80,44 @@ export default {
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'tooltip-appear': 'tooltip-appear 0.1s ease-out forwards',
+        'pill-grow': 'pill-grow 0.2s ease-out forwards',
+        'discord-pulse': 'discord-pulse 2s ease-in-out infinite',
+        'slide-up': 'slide-up 0.15s ease-out',
+        'slide-down': 'slide-down 0.15s ease-out',
+        'fade-in': 'fade-in 0.1s ease-out',
+      },
+      keyframes: {
+        'tooltip-appear': {
+          '0%': { opacity: 0, transform: 'scale(0.95)' },
+          '100%': { opacity: 1, transform: 'scale(1)' },
+        },
+        'pill-grow': {
+          '0%': { height: 0, opacity: 0 },
+          '100%': { height: '20px', opacity: 1 },
+        },
+        'discord-pulse': {
+          '0%, 100%': { transform: 'scale(1)' },
+          '50%': { transform: 'scale(1.1)' },
+        },
+        'slide-up': {
+          '0%': { opacity: 0, transform: 'translateY(8px)' },
+          '100%': { opacity: 1, transform: 'translateY(0)' },
+        },
+        'slide-down': {
+          '0%': { opacity: 0, transform: 'translateY(-8px)' },
+          '100%': { opacity: 1, transform: 'translateY(0)' },
+        },
+        'fade-in': {
+          '0%': { opacity: 0 },
+          '100%': { opacity: 1 },
+        },
+      },
+      transitionTimingFunction: {
+        'discord': 'cubic-bezier(0.2, 0.0, 0, 1.0)',
       },
     },
   },
   plugins: [],
 }
+
