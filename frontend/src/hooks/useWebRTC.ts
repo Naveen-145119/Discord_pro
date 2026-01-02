@@ -28,6 +28,8 @@ interface UseWebRTCProps {
     channelId: string;
     userId: string;
     displayName: string;
+    mode?: 'channel' | 'dm'; //Channel for multi-party, DM for 1:1 calls
+    targetUserId?: string; // Required for DM mode - the other user's ID
 }
 
 interface UseWebRTCReturn {
@@ -56,6 +58,8 @@ export function useWebRTC({
     channelId,
     userId,
     displayName: _displayName,
+    mode = 'channel',
+    targetUserId,
 }: UseWebRTCProps): UseWebRTCReturn {
     // Connection state
     const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -262,16 +266,31 @@ export function useWebRTC({
                 }
             });
 
-            // Announce presence (broadcast offer to all)
-            const pc = createPeerConnection();
-            setupPeerConnection(pc, 'all');
+            // Announce presence
+            if (mode === 'dm' && targetUserId) {
+                // DM mode: Create targeted peer connection to the other user
+                const pc = createPeerConnection();
+                setupPeerConnection(pc, targetUserId);
+                peerConnectionsRef.current.set(targetUserId, pc);
 
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
 
-            await sendSignal('all', 'offer', {
-                sdp: offer.sdp,
-            });
+                await sendSignal(targetUserId, 'offer', {
+                    sdp: offer.sdp,
+                });
+            } else {
+                // Channel mode: Broadcast offer to all participants
+                const pc = createPeerConnection();
+                setupPeerConnection(pc, 'all');
+
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                await sendSignal('all', 'offer', {
+                    sdp: offer.sdp,
+                });
+            }
 
             setConnectionState('connected');
         } catch (err) {
@@ -279,7 +298,7 @@ export function useWebRTC({
             setError(message);
             setConnectionState('failed');
         }
-    }, [channelId, connectionState, handleSignal, sendSignal, setupPeerConnection]);
+    }, [channelId, connectionState, handleSignal, sendSignal, setupPeerConnection, mode, targetUserId]);
 
     /**
      * Leave voice channel

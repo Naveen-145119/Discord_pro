@@ -53,10 +53,17 @@ export function useCall(): UseCallReturn {
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
     // WebRTC hook - only initialize when in a call
+    // Calculate target user ID for DM calls
+    const targetUserId = currentCall ?
+        (currentCall.callerId === user?.$id ? currentCall.receiverId : currentCall.callerId)
+        : '';
+
     const webRTC = useWebRTC({
         channelId: currentCall?.channelId || '',
         userId: user?.$id || '',
         displayName: user?.displayName || 'User',
+        mode: 'dm',
+        targetUserId,
     });
 
     const callTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
