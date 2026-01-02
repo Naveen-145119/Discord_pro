@@ -84,6 +84,20 @@ export function useWebRTC({
     const unsubscribeRef = useRef<(() => void) | null>(null);
     const voiceDetectorCleanupRef = useRef<(() => void) | null>(null);
 
+    // Refs to fix stale closure issues in callbacks
+    const localStreamRef = useRef<MediaStream | null>(null);
+    const channelIdRef = useRef(channelId);
+    const targetUserIdRef = useRef(targetUserId);
+
+    // Keep refs synced with props/state
+    useEffect(() => {
+        channelIdRef.current = channelId;
+    }, [channelId]);
+
+    useEffect(() => {
+        targetUserIdRef.current = targetUserId;
+    }, [targetUserId]);
+
     /**
      * Send signaling message via webrtc-signal function
      */
@@ -157,13 +171,14 @@ export function useWebRTC({
             });
         };
 
-        // Add local tracks
-        if (localStream) {
-            localStream.getTracks().forEach((track) => {
-                pc.addTrack(track, localStream);
+        // Add local tracks - Use REF to avoid stale closure
+        const stream = localStreamRef.current;
+        if (stream) {
+            stream.getTracks().forEach((track) => {
+                pc.addTrack(track, stream);
             });
         }
-    }, [sendSignal, localStream]);
+    }, [sendSignal]); // Removed localStream from deps - using ref instead
 
     /**
      * Handle incoming signaling message
@@ -189,6 +204,16 @@ export function useWebRTC({
             switch (signal.type) {
                 case 'offer': {
                     if (!signal.sdp) break;
+
+                    // CRITICAL: Add local tracks BEFORE setting remote description
+                    // Without this, receiver's audio/video won't be sent
+                    if (localStreamRef.current) {
+                        localStreamRef.current.getTracks().forEach((track) => {
+                            if (!pc.getSenders().find(s => s.track === track)) {
+                                pc.addTrack(track, localStreamRef.current!);
+                            }
+                        });
+                    }
 
                     await pc.setRemoteDescription({
                         type: 'offer',
@@ -243,12 +268,13 @@ export function useWebRTC({
         try {
             // Get local audio stream
             const stream = await getUserMedia(false);
+            localStreamRef.current = stream; // CRITICAL: Sync ref immediately
             setLocalStream(stream);
 
-            // Register voice state with backend
+            // Register voice state with backend - use REF for current channelId
             await functions.createExecution('webrtc-signal', JSON.stringify({
                 action: 'join',
-                channelId,
+                channelId: channelIdRef.current,
                 userId,
                 data: {}
             }), false);
@@ -268,8 +294,8 @@ export function useWebRTC({
             }) => {
                 const signal = response.payload as WebRTCSignal;
 
-                // Only handle signals for this channel
-                if (signal.channelId === channelId) {
+                // Only handle signals for this channel - use REF for current value
+                if (signal.channelId === channelIdRef.current) {
                     handleSignal(signal);
                 }
             });
@@ -328,16 +354,17 @@ export function useWebRTC({
      * Leave voice channel
      */
     const leaveChannel = useCallback(() => {
-        // Notify backend of leaving (fire and forget)
+        // Notify backend of leaving (fire and forget) - use REF for current channelId
         functions.createExecution('webrtc-signal', JSON.stringify({
             action: 'leave',
-            channelId,
+            channelId: channelIdRef.current,
             userId,
             data: {}
         }), false).catch(() => { });
 
         // Stop local stream
-        localStream?.getTracks().forEach((track) => track.stop());
+        localStreamRef.current?.getTracks().forEach((track) => track.stop());
+        localStreamRef.current = null;
         setLocalStream(null);
 
         // Stop screen share
@@ -364,7 +391,7 @@ export function useWebRTC({
         setIsVideoOn(false);
         setIsScreenSharing(false);
         setIsSpeaking(false);
-    }, [localStream, screenStream]);
+    }, [userId, screenStream]); // Removed localStream - using localStreamRef
 
     /**
      * Toggle mute
