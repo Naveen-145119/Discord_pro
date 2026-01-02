@@ -6,7 +6,6 @@ import { ID, Query } from 'appwrite';
 const MESSAGES_PER_PAGE = 50;
 
 interface MessageState {
-    // State
     messages: Message[];
     currentChannel: Channel | null;
     hasMore: boolean;
@@ -14,8 +13,6 @@ interface MessageState {
     isSending: boolean;
     error: string | null;
     typingUsers: Map<string, { username: string; expiresAt: number }>;
-
-    // Actions
     fetchMessages: (channelId: string, cursor?: string) => Promise<void>;
     sendMessage: (channelId: string, authorId: string, content: string, replyToId?: string) => Promise<Message>;
     editMessage: (messageId: string, content: string) => Promise<void>;
@@ -62,14 +59,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             const hasMore = response.documents.length > MESSAGES_PER_PAGE;
             const rawMessages = response.documents.slice(0, MESSAGES_PER_PAGE) as unknown as Message[];
 
-            // Parse metadata for each message
             const newMessages = rawMessages.map(msg => {
                 if (msg.metadata) {
                     try {
                         const { embeds, reactions, mentionRoleIds } = JSON.parse(msg.metadata);
                         return { ...msg, embeds, reactions, mentionRoleIds };
                     } catch {
-                        // Fallback defaults if parsing fails
                         return { ...msg, embeds: [], reactions: [], mentionRoleIds: [] };
                     }
                 }
@@ -169,12 +164,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     addMessage: (message) => {
         set((state) => {
-            // Check if message already exists
             if (state.messages.some((m) => m.$id === message.$id)) {
                 return state;
             }
 
-            // Add to beginning (newest first)
             return { messages: [message, ...state.messages] };
         });
     },
@@ -212,7 +205,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             return { typingUsers: newMap };
         });
 
-        // Auto-remove after 10 seconds
         setTimeout(() => {
             get().removeTypingUser(userId);
         }, 10000);
@@ -236,14 +228,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     clearError: () => set({ error: null }),
 }));
 
-// Realtime subscription helper
 export function subscribeToMessages(channelId: string) {
     const channel = `databases.${DATABASE_ID}.collections.${COLLECTIONS.MESSAGES}.documents`;
 
     return client.subscribe(channel, (response: { events: string[]; payload: unknown }) => {
         const payload = response.payload as Message;
 
-        // Only process messages for the current channel
         if (payload.channelId !== channelId) return;
 
         const eventType = response.events[0];

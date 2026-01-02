@@ -19,7 +19,6 @@ export function LoginPage() {
             await login(email, password);
             navigate('/');
         } catch {
-            // Error is handled by store
         }
     };
 
@@ -27,22 +26,18 @@ export function LoginPage() {
         <div className="min-h-screen flex items-center justify-center bg-background-tertiary p-4">
             <div className="w-full max-w-md">
                 <div className="bg-background-primary rounded-md p-8 shadow-elevation-high">
-                    {/* Header */}
                     <div className="text-center mb-6">
                         <h1 className="text-2xl font-bold text-text-heading">Welcome back!</h1>
                         <p className="text-text-muted mt-2">We're so excited to see you again!</p>
                     </div>
 
-                    {/* Error message */}
                     {error && (
                         <div className="mb-4 p-3 bg-discord-red/10 border border-discord-red/50 rounded-md">
                             <p className="text-discord-red text-sm">{error}</p>
                         </div>
                     )}
 
-                    {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        {/* Email */}
                         <div>
                             <label
                                 htmlFor="email"
@@ -62,7 +57,6 @@ export function LoginPage() {
                             />
                         </div>
 
-                        {/* Password */}
                         <div>
                             <label
                                 htmlFor="password"
@@ -94,7 +88,6 @@ export function LoginPage() {
                             </button>
                         </div>
 
-                        {/* Submit */}
                         <button
                             type="submit"
                             disabled={isLoading}
@@ -104,7 +97,6 @@ export function LoginPage() {
                         </button>
                     </form>
 
-                    {/* Register link */}
                     <p className="mt-4 text-sm text-text-muted">
                         Need an account?{' '}
                         <Link to="/register" className="text-text-link hover:underline">

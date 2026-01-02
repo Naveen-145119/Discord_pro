@@ -16,7 +16,6 @@ export function RegisterPage() {
         e.preventDefault();
         clearError();
 
-        // Basic validation
         if (username.length < 2 || username.length > 32) {
             return;
         }
@@ -29,7 +28,6 @@ export function RegisterPage() {
             await register(email, password, username);
             navigate('/');
         } catch {
-            // Error is handled by store
         }
     };
 
@@ -37,21 +35,17 @@ export function RegisterPage() {
         <div className="min-h-screen flex items-center justify-center bg-background-tertiary p-4">
             <div className="w-full max-w-md">
                 <div className="bg-background-primary rounded-md p-8 shadow-elevation-high">
-                    {/* Header */}
                     <div className="text-center mb-6">
                         <h1 className="text-2xl font-bold text-text-heading">Create an account</h1>
                     </div>
 
-                    {/* Error message */}
                     {error && (
                         <div className="mb-4 p-3 bg-discord-red/10 border border-discord-red/50 rounded-md">
                             <p className="text-discord-red text-sm">{error}</p>
                         </div>
                     )}
 
-                    {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        {/* Email */}
                         <div>
                             <label
                                 htmlFor="email"
@@ -71,7 +65,6 @@ export function RegisterPage() {
                             />
                         </div>
 
-                        {/* Username */}
                         <div>
                             <label
                                 htmlFor="username"
@@ -93,7 +86,6 @@ export function RegisterPage() {
                             />
                         </div>
 
-                        {/* Password */}
                         <div>
                             <label
                                 htmlFor="password"
@@ -126,7 +118,6 @@ export function RegisterPage() {
                             </p>
                         </div>
 
-                        {/* Submit */}
                         <button
                             type="submit"
                             disabled={isLoading}
@@ -135,7 +126,6 @@ export function RegisterPage() {
                             {isLoading ? 'Creating account...' : 'Continue'}
                         </button>
 
-                        {/* Terms */}
                         <p className="text-xs text-text-muted">
                             By registering, you agree to Discord's{' '}
                             <span className="text-text-link hover:underline cursor-pointer">
@@ -149,7 +139,6 @@ export function RegisterPage() {
                         </p>
                     </form>
 
-                    {/* Login link */}
                     <p className="mt-4 text-sm">
                         <Link to="/login" className="text-text-link hover:underline">
                             Already have an account?

@@ -56,8 +56,29 @@ export function ActiveCallModal({
             return;
         }
 
+        const audioTracks = remoteStream.getAudioTracks();
         console.log('[ActiveCallModal] Remote stream received, tracks:', 
             remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
+        
+        // Log detailed audio track info
+        if (audioTracks.length > 0) {
+            const track = audioTracks[0];
+            console.log('[ActiveCallModal] Remote audio track details:', {
+                id: track.id,
+                label: track.label,
+                enabled: track.enabled,
+                muted: track.muted,
+                readyState: track.readyState,
+                settings: track.getSettings(),
+            });
+            
+            // Monitor track for mute/unmute events
+            track.onmute = () => console.log('[ActiveCallModal] Remote audio track MUTED');
+            track.onunmute = () => console.log('[ActiveCallModal] Remote audio track UNMUTED');
+            track.onended = () => console.log('[ActiveCallModal] Remote audio track ENDED');
+        } else {
+            console.warn('[ActiveCallModal] NO AUDIO TRACKS in remote stream!');
+        }
 
         // Attach to hidden audio element
         if (remoteAudioRef.current) {
@@ -72,6 +93,31 @@ export function ActiveCallModal({
                         console.log('[ActiveCallModal] Audio playback started successfully, volume:', 
                             remoteAudioRef.current?.volume, 'muted:', remoteAudioRef.current?.muted);
                         setAudioPlaybackFailed(false);
+                        
+                        // Check audio levels using Web Audio API
+                        try {
+                            const audioContext = new AudioContext();
+                            const source = audioContext.createMediaStreamSource(remoteStream);
+                            const analyser = audioContext.createAnalyser();
+                            analyser.fftSize = 256;
+                            source.connect(analyser);
+                            // Note: NOT connecting to destination to avoid feedback
+                            
+                            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                            let checkCount = 0;
+                            const checkInterval = setInterval(() => {
+                                analyser.getByteFrequencyData(dataArray);
+                                const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                                console.log('[ActiveCallModal] Audio level:', average.toFixed(2));
+                                checkCount++;
+                                if (checkCount >= 5) {
+                                    clearInterval(checkInterval);
+                                    audioContext.close();
+                                }
+                            }, 1000);
+                        } catch (e) {
+                            console.log('[ActiveCallModal] Could not analyze audio:', e);
+                        }
                     })
                     .catch((err) => {
                         console.error('[ActiveCallModal] Audio autoplay blocked:', err.name, err.message);

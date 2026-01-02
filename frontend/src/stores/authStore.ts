@@ -5,14 +5,11 @@ import type { User } from '@/types';
 import { ID, Query } from 'appwrite';
 
 interface AuthState {
-    // State
     user: User | null;
     sessionId: string | null;
     isLoading: boolean;
     isAuthenticated: boolean;
     error: string | null;
-
-    // Actions
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string, username: string) => Promise<void>;
     logout: () => Promise<void>;
@@ -34,13 +31,10 @@ export const useAuthStore = create<AuthState>()(
                 set({ isLoading: true, error: null });
 
                 try {
-                    // Create session
                     const session = await account.createEmailPasswordSession(email, password);
 
-                    // Get Appwrite user
                     const appwriteUser = await account.get();
 
-                    // Fetch user profile from database
                     const userDocs = await databases.listDocuments(
                         DATABASE_ID,
                         COLLECTIONS.USERS,
@@ -52,7 +46,6 @@ export const useAuthStore = create<AuthState>()(
                     if (userDocs.documents.length > 0) {
                         user = userDocs.documents[0] as unknown as User;
                     } else {
-                        // Create user profile if it doesn't exist
                         user = await databases.createDocument(
                             DATABASE_ID,
                             COLLECTIONS.USERS,
@@ -70,7 +63,6 @@ export const useAuthStore = create<AuthState>()(
                         ) as unknown as User;
                     }
 
-                    // Update user status to online
                     await databases.updateDocument(
                         DATABASE_ID,
                         COLLECTIONS.USERS,
@@ -95,7 +87,6 @@ export const useAuthStore = create<AuthState>()(
                 set({ isLoading: true, error: null });
 
                 try {
-                    // Check if username is taken
                     const existingUsers = await databases.listDocuments(
                         DATABASE_ID,
                         COLLECTIONS.USERS,
@@ -106,10 +97,8 @@ export const useAuthStore = create<AuthState>()(
                         throw new Error('Username is already taken');
                     }
 
-                    // Create Appwrite account
                     const newAccount = await account.create(ID.unique(), email, password, username);
 
-                    // Create user profile in database
                     await databases.createDocument(
                         DATABASE_ID,
                         COLLECTIONS.USERS,
@@ -126,7 +115,6 @@ export const useAuthStore = create<AuthState>()(
                         }
                     );
 
-                    // Login after registration
                     await get().login(email, password);
                 } catch (error) {
                     const message = error instanceof Error ? error.message : 'Registration failed';
@@ -139,19 +127,17 @@ export const useAuthStore = create<AuthState>()(
                 const { user } = get();
 
                 try {
-                    // Update status to offline before logging out
                     if (user) {
                         await databases.updateDocument(
                             DATABASE_ID,
                             COLLECTIONS.USERS,
                             user.$id,
                             { status: 'offline' }
-                        ).catch(() => { }); // Ignore errors
+                        ).catch(() => { });
                     }
 
                     await account.deleteSession('current');
                 } catch {
-                    // Ignore errors during logout
                 } finally {
                     set({
                         user: null,
@@ -166,18 +152,15 @@ export const useAuthStore = create<AuthState>()(
                 set({ isLoading: true });
 
                 try {
-                    // Check for existing session
                     const session = await account.getSession('current');
                     const appwriteUser = await account.get();
 
-                    // Fetch user profile
                     const userDoc = await databases.getDocument(
                         DATABASE_ID,
                         COLLECTIONS.USERS,
                         appwriteUser.$id
                     ) as unknown as User;
 
-                    // Update status to online
                     await databases.updateDocument(
                         DATABASE_ID,
                         COLLECTIONS.USERS,
