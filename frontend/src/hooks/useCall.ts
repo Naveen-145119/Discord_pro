@@ -60,12 +60,20 @@ export function useCall(): UseCallReturn {
         return call.callerId === user?.$id ? call.receiverId : call.callerId;
     }, [currentCall, incomingCall, user?.$id]);
 
+    // Determine if this user is the call initiator (caller sends offer, receiver waits)
+    const isInitiator = useMemo(() => {
+        const call = currentCall || incomingCall;
+        if (!call) return true; // Default to true
+        return call.callerId === user?.$id; // Caller is initiator
+    }, [currentCall, incomingCall, user?.$id]);
+
     const webRTC = useWebRTC({
         channelId: currentCall?.channelId || incomingCall?.channelId || '',
         userId: user?.$id || '',
         displayName: user?.displayName || 'User',
         mode: 'dm',
         targetUserId,
+        isInitiator,
     });
 
     const callTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,57 +226,59 @@ export function useCall(): UseCallReturn {
     useEffect(() => {
         if (!user?.$id) return;
 
-        // Subscribe to calls where user is the receiver
-        const unsubscribe = client.subscribe(
-            `databases.${DATABASE_ID}.collections.${COLLECTIONS.ACTIVE_CALLS}.documents`,
-            async (response) => {
-                const call = response.payload as unknown as ActiveCall;
-                const event = response.events[0];
+        // Delay subscription to prevent WebSocket connection conflicts
+        const timeoutId = setTimeout(() => {
+            const unsubscribe = client.subscribe(
+                `databases.${DATABASE_ID}.collections.${COLLECTIONS.ACTIVE_CALLS}.documents`,
+                async (response) => {
+                    const call = response.payload as unknown as ActiveCall;
+                    const event = response.events[0];
 
-                // Incoming call (user is receiver and call is ringing)
-                if (call.receiverId === user.$id && call.status === 'ringing' && event.includes('.create')) {
-                    // Fetch caller info
-                    try {
-                        const callerDoc = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, call.callerId);
-                        setIncomingCall({
+                    // Incoming call (user is receiver and call is ringing)
+                    if (call.receiverId === user.$id && call.status === 'ringing' && event.includes('.create')) {
+                        try {
+                            const callerDoc = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, call.callerId);
+                            setIncomingCall({
+                                ...call,
+                                caller: callerDoc as unknown as User
+                            });
+                        } catch {
+                            setIncomingCall(call);
+                        }
+                    }
+
+                    // Call was answered (update for caller)
+                    if (call.callerId === user.$id && call.status === 'answered') {
+                        if (callTimeoutRef.current) {
+                            clearTimeout(callTimeoutRef.current);
+                            callTimeoutRef.current = null;
+                        }
+                        setCurrentCall(prev => ({
+                            ...prev,
                             ...call,
-                            caller: callerDoc as unknown as User
-                        });
-                    } catch {
-                        setIncomingCall(call);
+                            status: 'answered'
+                        }));
                     }
-                }
 
-                // Call was answered (update for caller)
-                if (call.callerId === user.$id && call.status === 'answered') {
-                    if (callTimeoutRef.current) {
-                        clearTimeout(callTimeoutRef.current);
-                        callTimeoutRef.current = null;
-                    }
-                    // Preserve existing call data (caller, receiver) while updating status
-                    setCurrentCall(prev => ({
-                        ...prev,
-                        ...call,
-                        status: 'answered'
-                    }));
-                }
-
-                // Call ended or declined
-                if ((call.status === 'ended' || call.status === 'declined') &&
-                    (call.callerId === user.$id || call.receiverId === user.$id)) {
-                    if (call.$id === currentCall?.$id) {
-                        setCurrentCall(null);
-                        webRTC.leaveChannel();
-                    }
-                    if (call.$id === incomingCall?.$id) {
-                        setIncomingCall(null);
+                    // Call ended or declined
+                    if ((call.status === 'ended' || call.status === 'declined') &&
+                        (call.callerId === user.$id || call.receiverId === user.$id)) {
+                        if (call.$id === currentCall?.$id) {
+                            setCurrentCall(null);
+                            webRTC.leaveChannel();
+                        }
+                        if (call.$id === incomingCall?.$id) {
+                            setIncomingCall(null);
+                        }
                     }
                 }
-            }
-        );
+            );
+            (window as unknown as Record<string, () => void>).__callUnsubscribe = unsubscribe;
+        }, 1000);
 
         return () => {
-            unsubscribe();
+            clearTimeout(timeoutId);
+            (window as unknown as Record<string, () => void>).__callUnsubscribe?.();
         };
     }, [user?.$id, currentCall?.$id, incomingCall?.$id, webRTC]);
 

@@ -147,27 +147,34 @@ export function useDMs(): UseDMsReturn {
     useEffect(() => {
         if (!user?.$id) return;
 
-        // Subscribe to DM channel updates
-        const unsubscribe = client.subscribe(
-            `databases.${DATABASE_ID}.collections.${COLLECTIONS.DM_CHANNELS}.documents`,
-            (response) => {
-                const event = response.events[0];
-                const document = response.payload as unknown as DMChannel;
+        // Delay subscription to prevent WebSocket connection conflicts
+        const timeoutId = setTimeout(() => {
+            // Subscribe to DM channel updates
+            const unsubscribe = client.subscribe(
+                `databases.${DATABASE_ID}.collections.${COLLECTIONS.DM_CHANNELS}.documents`,
+                (response) => {
+                    const event = response.events[0];
+                    const document = response.payload as unknown as DMChannel;
 
-                // Only process if user is a participant
-                if (!document.participantIds?.includes(user.$id)) return;
+                    // Only process if user is a participant
+                    if (!document.participantIds?.includes(user.$id)) return;
 
-                if (event.includes('.create') || event.includes('.update')) {
-                    // Refresh to get updated data with friend info
-                    fetchDMs();
-                } else if (event.includes('.delete')) {
-                    setDmChannels(prev => prev.filter(dm => dm.$id !== document.$id));
+                    if (event.includes('.create') || event.includes('.update')) {
+                        // Refresh to get updated data with friend info
+                        fetchDMs();
+                    } else if (event.includes('.delete')) {
+                        setDmChannels(prev => prev.filter(dm => dm.$id !== document.$id));
+                    }
                 }
-            }
-        );
+            );
+
+            // Store unsubscribe for cleanup
+            (window as unknown as Record<string, () => void>).__dmUnsubscribe = unsubscribe;
+        }, 500);
 
         return () => {
-            unsubscribe();
+            clearTimeout(timeoutId);
+            (window as unknown as Record<string, () => void>).__dmUnsubscribe?.();
         };
     }, [user?.$id, fetchDMs]);
 
