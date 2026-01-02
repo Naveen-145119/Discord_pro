@@ -49,6 +49,10 @@ export function ActiveCallModal({
     useEffect(() => {
         if (remoteVideoRef.current && remoteStream) {
             remoteVideoRef.current.srcObject = remoteStream;
+            // CRITICAL: Explicit play() call needed for audio due to browser autoplay policies
+            remoteVideoRef.current.play().catch((err) => {
+                console.error('Failed to play remote stream:', err);
+            });
         }
     }, [remoteStream]);
 
@@ -135,8 +139,8 @@ export function ActiveCallModal({
                 <button
                     onClick={onToggleMute}
                     className={`p-4 rounded-full transition-all hover:scale-110 ${isMuted
-                            ? 'bg-red-500 text-white'
-                            : 'bg-gray-700 text-white hover:bg-gray-600'
+                        ? 'bg-red-500 text-white'
+                        : 'bg-gray-700 text-white hover:bg-gray-600'
                         }`}
                     title={isMuted ? 'Unmute' : 'Mute'}
                 >
@@ -147,8 +151,8 @@ export function ActiveCallModal({
                 <button
                     onClick={onToggleVideo}
                     className={`p-4 rounded-full transition-all hover:scale-110 ${!isVideoOn
-                            ? 'bg-red-500 text-white'
-                            : 'bg-gray-700 text-white hover:bg-gray-600'
+                        ? 'bg-red-500 text-white'
+                        : 'bg-gray-700 text-white hover:bg-gray-600'
                         }`}
                     title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
                 >
@@ -159,8 +163,8 @@ export function ActiveCallModal({
                 <button
                     onClick={onToggleScreenShare}
                     className={`p-4 rounded-full transition-all hover:scale-110 ${isScreenSharing
-                            ? 'bg-green-500 text-white'
-                            : 'bg-gray-700 text-white hover:bg-gray-600'
+                        ? 'bg-green-500 text-white'
+                        : 'bg-gray-700 text-white hover:bg-gray-600'
                         }`}
                     title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen (1080p 60fps)'}
                 >

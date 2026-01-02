@@ -6,7 +6,8 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { client, functions, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { functions, COLLECTIONS } from '@/lib/appwrite';
+import { useRealtime } from '@/providers/RealtimeProvider';
 import {
     createPeerConnection,
     getUserMedia,
@@ -21,8 +22,7 @@ import {
 } from '@/lib/webrtc';
 // ID import removed - no longer using direct database writes
 
-// Use COLLECTIONS constant for consistency
-const SIGNALS_COLLECTION = COLLECTIONS.WEBRTC_SIGNALS;
+// SIGNALS_COLLECTION constant removed - using COLLECTIONS.WEBRTC_SIGNALS directly
 
 interface UseWebRTCProps {
     channelId: string;
@@ -45,8 +45,8 @@ interface UseWebRTCReturn {
     isSpeaking: boolean;
     error: string | null;
 
-    // Actions
-    joinChannel: () => Promise<void>;
+    // Actions - joinChannel accepts optional overrides for when refs haven't updated yet
+    joinChannel: (overrides?: { channelId?: string; targetUserId?: string }) => Promise<void>;
     leaveChannel: () => void;
     toggleMute: () => void;
     toggleDeafen: () => void;
@@ -89,6 +89,9 @@ export function useWebRTC({
     const channelIdRef = useRef(channelId);
     const targetUserIdRef = useRef(targetUserId);
 
+    // Buffer for signals that arrive before we're ready to process them
+    const pendingSignalsRef = useRef<WebRTCSignal[]>([]);
+
     // Keep refs synced with props/state
     useEffect(() => {
         channelIdRef.current = channelId;
@@ -98,6 +101,9 @@ export function useWebRTC({
         targetUserIdRef.current = targetUserId;
     }, [targetUserId]);
 
+    // Get centralized Realtime subscription - NO MORE DUPLICATE WebSockets!
+    const { subscribe: subscribeRealtime } = useRealtime();
+
     /**
      * Send signaling message via webrtc-signal function
      */
@@ -106,11 +112,18 @@ export function useWebRTC({
         type: WebRTCSignal['type'],
         data: { sdp?: string; candidate?: string }
     ) => {
+        // CRITICAL: Use REF for current channelId, not stale closure value
+        const currentChannelId = channelIdRef.current;
+        if (!currentChannelId) {
+            console.error('sendSignal: No channelId available!');
+            return;
+        }
+
         await functions.createExecution(
             'webrtc-signal',
             JSON.stringify({
                 action: type,
-                channelId,
+                channelId: currentChannelId,
                 userId,
                 data: {
                     targetUserId: toUserId,
@@ -120,7 +133,7 @@ export function useWebRTC({
             }),
             false
         );
-    }, [channelId, userId]);
+    }, [userId]); // Removed channelId - using channelIdRef
 
     /**
      * Setup peer connection event handlers
@@ -254,13 +267,60 @@ export function useWebRTC({
         }
     }, [userId, sendSignal, setupPeerConnection]);
 
+    // Subscribe to WebRTC signals via CENTRALIZED RealtimeProvider
+    // CRITICAL FIX: Buffer signals when disconnected, process when connected
+    useEffect(() => {
+        // Need channelId to filter signals, but subscribe REGARDLESS of connectionState
+        if (!channelIdRef.current) return;
+
+        const unsubscribe = subscribeRealtime((event) => {
+            // Only handle WebRTC signals
+            if (event.collection !== COLLECTIONS.WEBRTC_SIGNALS) return;
+
+            const signal = event.payload as WebRTCSignal;
+
+            // Only handle signals for THIS call's channel
+            if (signal.channelId !== channelIdRef.current) return;
+
+            // If not ready (disconnected), buffer the signal for later processing
+            if (connectionState === 'disconnected') {
+                console.log('[WebRTC] Buffering signal (not ready yet):', signal.type);
+                pendingSignalsRef.current.push(signal);
+            } else {
+                // Ready to process - handle immediately
+                handleSignal(signal);
+            }
+        });
+
+        // Store for cleanup
+        unsubscribeRef.current = unsubscribe;
+
+        return () => {
+            unsubscribe();
+            unsubscribeRef.current = null;
+        };
+    }, [connectionState, handleSignal, subscribeRealtime]);
 
 
     /**
      * Join voice channel
      */
-    const joinChannel = useCallback(async () => {
+    const joinChannel = useCallback(async (overrides?: { channelId?: string; targetUserId?: string }) => {
         if (connectionState !== 'disconnected') return;
+
+        // Use overrides if provided (for when called before React re-renders)
+        // Otherwise fall back to refs
+        const effectiveChannelId = overrides?.channelId || channelIdRef.current;
+        const effectiveTargetUserId = overrides?.targetUserId || targetUserIdRef.current;
+
+        // CRITICAL: Sync refs IMMEDIATELY so sendSignal uses correct values!
+        // Without this, sendSignal would use empty channelIdRef.current and return early
+        if (effectiveChannelId) {
+            channelIdRef.current = effectiveChannelId;
+        }
+        if (effectiveTargetUserId) {
+            targetUserIdRef.current = effectiveTargetUserId;
+        }
 
         setConnectionState('connecting');
         setError(null);
@@ -271,10 +331,10 @@ export function useWebRTC({
             localStreamRef.current = stream; // CRITICAL: Sync ref immediately
             setLocalStream(stream);
 
-            // Register voice state with backend - use REF for current channelId
+            // Register voice state with backend - use effective channelId
             await functions.createExecution('webrtc-signal', JSON.stringify({
                 action: 'join',
-                channelId: channelIdRef.current,
+                channelId: effectiveChannelId,
                 userId,
                 data: {}
             }), false);
@@ -285,25 +345,13 @@ export function useWebRTC({
                 setIsSpeaking
             );
 
-            // Subscribe to signaling via Appwrite Realtime
-            const channel = `databases.${DATABASE_ID}.collections.${SIGNALS_COLLECTION}.documents`;
-
-            unsubscribeRef.current = client.subscribe(channel, (response: {
-                events: string[];
-                payload: unknown;
-            }) => {
-                const signal = response.payload as WebRTCSignal;
-
-                // Only handle signals for this channel - use REF for current value
-                if (signal.channelId === channelIdRef.current) {
-                    handleSignal(signal);
-                }
-            });
+            // NOTE: Signaling subscription moved to useEffect below to use centralized RealtimeProvider
+            // This prevents dual WebSocket connections!
 
             // Only initiator (caller) sends offer
             // Receiver will get offer via Realtime and respond with answer in handleSignal
             if (isInitiator) {
-                if (mode === 'dm' && targetUserId) {
+                if (mode === 'dm' && effectiveTargetUserId) {
                     // DM mode: Create targeted peer connection to the other user
                     const pc = createPeerConnection();
 
@@ -312,13 +360,13 @@ export function useWebRTC({
                         pc.addTrack(track, stream);
                     });
 
-                    setupPeerConnection(pc, targetUserId);
-                    peerConnectionsRef.current.set(targetUserId, pc);
+                    setupPeerConnection(pc, effectiveTargetUserId);
+                    peerConnectionsRef.current.set(effectiveTargetUserId, pc);
 
                     const offer = await pc.createOffer();
                     await pc.setLocalDescription(offer);
 
-                    await sendSignal(targetUserId, 'offer', {
+                    await sendSignal(effectiveTargetUserId, 'offer', {
                         sdp: offer.sdp,
                     });
                 } else {
@@ -343,12 +391,23 @@ export function useWebRTC({
             // If not initiator (receiver), we just set up media and wait for offer
 
             setConnectionState('connected');
+
+            // CRITICAL: Process any buffered signals that arrived before we were ready
+            // This handles the case where offer arrived before receiver clicked Accept
+            if (pendingSignalsRef.current.length > 0) {
+                console.log('[WebRTC] Processing', pendingSignalsRef.current.length, 'buffered signals');
+                const bufferedSignals = [...pendingSignalsRef.current];
+                pendingSignalsRef.current = []; // Clear buffer first to avoid duplicates
+                for (const signal of bufferedSignals) {
+                    await handleSignal(signal);
+                }
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to join channel';
             setError(message);
             setConnectionState('failed');
         }
-    }, [channelId, connectionState, handleSignal, sendSignal, setupPeerConnection, mode, targetUserId, isInitiator]);
+    }, [connectionState, handleSignal, sendSignal, setupPeerConnection, mode, isInitiator]); // Removed channelId/targetUserId - using refs
 
     /**
      * Leave voice channel
@@ -382,6 +441,9 @@ export function useWebRTC({
         // Cleanup voice detector
         voiceDetectorCleanupRef.current?.();
         voiceDetectorCleanupRef.current = null;
+
+        // Clear any pending signals buffer
+        pendingSignalsRef.current = [];
 
         // Reset state
         setParticipants(new Map());
