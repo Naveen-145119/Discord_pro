@@ -91,8 +91,24 @@ export function ActiveCallModal({
     };
 
     // Setup audio with Web Audio API for volume control and boost
-    const setupAudioWithGain = useCallback(async (stream: MediaStream) => {
+    // Uses the audio element as source for reliable playback
+    const setupAudioWithGain = useCallback(async (stream: MediaStream, audioElement: HTMLAudioElement) => {
         try {
+            // First, set up the audio element for playback
+            audioElement.srcObject = stream;
+            audioElement.volume = 1.0; // We'll control volume via gain node
+            audioElement.muted = false;
+            
+            // Try to play
+            try {
+                await audioElement.play();
+                console.log('[ActiveCallModal] Audio element playing');
+            } catch (playErr) {
+                console.error('[ActiveCallModal] Audio autoplay blocked:', playErr);
+                setAudioPlaybackFailed(true);
+                return;
+            }
+            
             // Cleanup previous audio context
             if (audioContextRef.current) {
                 await audioContextRef.current.close();
@@ -101,31 +117,32 @@ export function ActiveCallModal({
             const audioContext = new AudioContext();
             audioContextRef.current = audioContext;
             
+            // Resume context if suspended (autoplay policy)
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            
             // Create gain node for volume control (allows boost beyond 100%)
             const gainNode = audioContext.createGain();
             gainNodeRef.current = gainNode;
             gainNode.gain.value = volume / 100;
             
-            // Create source from stream
-            const source = audioContext.createMediaStreamSource(stream);
+            // Create source from the AUDIO ELEMENT (not the stream directly)
+            // This is more reliable for playback
+            const source = audioContext.createMediaElementSource(audioElement);
             
             // Connect: source -> gain -> destination (speakers)
             source.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            console.log('[ActiveCallModal] Audio setup with gain control, volume:', volume);
-            
-            // Resume context if suspended (autoplay policy)
-            if (audioContext.state === 'suspended') {
-                await audioContext.resume();
-            }
+            console.log('[ActiveCallModal] Audio setup with gain control via element, volume:', volume);
             
             setAudioPlaybackFailed(false);
             
             // Monitor audio levels
             const analyser = audioContext.createAnalyser();
             analyser.fftSize = 256;
-            source.connect(analyser);
+            gainNode.connect(analyser); // Connect after gain to see amplified levels
             
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
             let checkCount = 0;
@@ -190,8 +207,11 @@ export function ActiveCallModal({
             track.onended = () => console.log('[ActiveCallModal] Remote audio track ENDED');
         }
 
-        // Setup audio with gain control
-        setupAudioWithGain(remoteStream);
+        // Setup audio with gain control using the audio element
+        const audioElement = remoteAudioRef.current;
+        if (audioElement) {
+            setupAudioWithGain(remoteStream, audioElement);
+        }
 
         // Setup video if present
         if (remoteVideoRef.current) {
@@ -216,8 +236,9 @@ export function ActiveCallModal({
             if (audioContextRef.current?.state === 'suspended') {
                 await audioContextRef.current.resume();
             }
-            if (remoteStream) {
-                await setupAudioWithGain(remoteStream);
+            const audioElement = remoteAudioRef.current;
+            if (remoteStream && audioElement) {
+                await setupAudioWithGain(remoteStream, audioElement);
             }
             setAudioPlaybackFailed(false);
         } catch (err) {
