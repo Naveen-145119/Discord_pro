@@ -40,36 +40,49 @@ export function ActiveCallModal({
 }: ActiveCallModalProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
-    // CRITICAL FIX: Separate audio element ref for voice-only calls
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
     const [audioPlaybackFailed, setAudioPlaybackFailed] = useState(false);
 
-    // Attach local stream to video element
     useEffect(() => {
         if (localVideoRef.current && localStream) {
             localVideoRef.current.srcObject = localStream;
         }
     }, [localStream]);
 
-    // CRITICAL FIX: Always attach remote stream to BOTH audio and video elements
-    // This ensures audio plays even when video element is hidden
+    // Attach remote stream and attempt playback
     useEffect(() => {
-        if (!remoteStream) return;
-
-        // Attach to hidden audio element (ALWAYS plays audio)
-        if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.play().catch((err) => {
-                console.error('Failed to play remote audio:', err);
-                setAudioPlaybackFailed(true);
-            });
+        if (!remoteStream) {
+            console.log('[ActiveCallModal] No remote stream yet');
+            return;
         }
 
-        // Attach to video element (for video/screenshare display)
+        console.log('[ActiveCallModal] Remote stream received, tracks:', 
+            remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
+
+        // Attach to hidden audio element
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            
+            // Try to play immediately
+            const playPromise = remoteAudioRef.current.play();
+            if (playPromise !== undefined) {
+                playPromise
+                    .then(() => {
+                        console.log('[ActiveCallModal] Audio playback started successfully');
+                        setAudioPlaybackFailed(false);
+                    })
+                    .catch((err) => {
+                        console.error('[ActiveCallModal] Audio autoplay blocked:', err.name, err.message);
+                        setAudioPlaybackFailed(true);
+                    });
+            }
+        }
+
+        // Attach to video element
         if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = remoteStream;
             remoteVideoRef.current.play().catch((err) => {
-                console.error('Failed to play remote video:', err);
+                console.log('[ActiveCallModal] Video autoplay blocked:', err.message);
             });
         }
     }, [remoteStream]);

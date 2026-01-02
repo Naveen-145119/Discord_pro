@@ -10,33 +10,25 @@ interface DMChannelWithFriend extends DMChannel {
 }
 
 interface UseDMsReturn {
-    // State
     dmChannels: DMChannelWithFriend[];
     isLoading: boolean;
     error: string | null;
-
-    // Actions
     createOrGetDM: (friendId: string) => Promise<DMChannelWithFriend>;
     refresh: () => Promise<void>;
 }
 
-/**
- * Custom hook for managing DM channels
- */
 export function useDMs(): UseDMsReturn {
     const { user } = useAuthStore();
     const [dmChannels, setDmChannels] = useState<DMChannelWithFriend[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch all DM channels for the current user
     const fetchDMs = useCallback(async () => {
         if (!user?.$id) return;
 
         try {
             setIsLoading(true);
 
-            // Query DM channels where user is a participant
             const result = await databases.listDocuments(DATABASE_ID, COLLECTIONS.DM_CHANNELS, [
                 Query.contains('participantIds', user.$id),
                 Query.orderDesc('lastMessageAt'),
@@ -45,8 +37,6 @@ export function useDMs(): UseDMsReturn {
 
             const channels = result.documents as unknown as DMChannel[];
 
-            // Get all friend IDs (the other participant)
-            // participantIds is stored as JSON string in Appwrite, so parse it
             const friendIds = new Set<string>();
             channels.forEach(channel => {
                 const participants = typeof channel.participantIds === 'string'
@@ -59,7 +49,6 @@ export function useDMs(): UseDMsReturn {
                 });
             });
 
-            // Fetch friend details
             let friendsMap = new Map<string, User>();
             if (friendIds.size > 0) {
                 const friends = await databases.listDocuments(DATABASE_ID, COLLECTIONS.USERS, [
@@ -69,7 +58,6 @@ export function useDMs(): UseDMsReturn {
                 friendsMap = new Map(friends.documents.map(f => [f.$id, f as unknown as User]));
             }
 
-            // Combine channels with friend data
             const channelsWithFriends: DMChannelWithFriend[] = channels.map(channel => {
                 const participants = typeof channel.participantIds === 'string'
                     ? JSON.parse(channel.participantIds)
@@ -78,7 +66,7 @@ export function useDMs(): UseDMsReturn {
                 const friend = friendsMap.get(friendId);
                 return {
                     ...channel,
-                    participantIds: participants, // Ensure it's always an array
+                    participantIds: participants,
                     friend: friend || {
                         $id: friendId,
                         username: 'Unknown',
@@ -105,7 +93,6 @@ export function useDMs(): UseDMsReturn {
         }
     }, [user?.$id]);
 
-    // Create or get existing DM channel
     const createOrGetDM = useCallback(async (friendId: string): Promise<DMChannelWithFriend> => {
         if (!user?.$id) throw new Error('Not authenticated');
 
@@ -126,7 +113,6 @@ export function useDMs(): UseDMsReturn {
                 friend: response.data.friend
             };
 
-            // If it's a new channel, add it to the list
             if (response.isNew) {
                 setDmChannels(prev => [dmChannel, ...prev]);
             }
@@ -139,24 +125,20 @@ export function useDMs(): UseDMsReturn {
         }
     }, [user?.$id]);
 
-    // Refresh DMs
     const refresh = useCallback(async () => {
         await fetchDMs();
     }, [fetchDMs]);
 
-    // Subscribe to realtime updates via centralized provider
     const { subscribe } = useRealtime();
 
     useEffect(() => {
         if (!user?.$id) return;
 
-        // Listen to DM channel events from centralized subscription
         const unsubscribe = subscribe((event) => {
             if (event.collection !== COLLECTIONS.DM_CHANNELS) return;
 
             const document = event.payload as DMChannel;
 
-            // Only process if user is a participant
             if (!document.participantIds?.includes(user.$id)) return;
 
             if (event.event.includes('.create') || event.event.includes('.update')) {
@@ -169,7 +151,6 @@ export function useDMs(): UseDMsReturn {
         return unsubscribe;
     }, [user?.$id, fetchDMs, subscribe]);
 
-    // Initial load
     useEffect(() => {
         if (user?.$id) {
             fetchDMs();

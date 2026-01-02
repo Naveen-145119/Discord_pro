@@ -1,18 +1,7 @@
-/**
- * RealtimeProvider - Centralized Appwrite Realtime Subscription Manager
- * 
- * CRITICAL: Appwrite SDK creates NEW WebSocket connection each time subscribe() is called.
- * Multiple hooks subscribing = constant connection churn = "WebSocket closed before connection"
- * 
- * This provider manages ONE subscription with ALL channels to prevent this.
- * 
- * @see https://appwrite.io/docs/apis/realtime#subscription-changes
- */
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 import { useAuthStore } from '@/stores/authStore';
 
-// Event types that components can subscribe to
 type RealtimeEvent = {
     collection: string;
     event: string;
@@ -46,7 +35,6 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
     const listenersRef = useRef<Set<RealtimeListener>>(new Set());
     const unsubscribeRef = useRef<(() => void) | null>(null);
 
-    // Subscribe function for components to register listeners
     const subscribe = (listener: RealtimeListener) => {
         listenersRef.current.add(listener);
         return () => {
@@ -54,17 +42,13 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
         };
     };
 
-    // Create SINGLE subscription with ALL channels
     useEffect(() => {
         if (!user?.$id) {
-            // Not authenticated - don't subscribe
             setIsConnected(false);
             return;
         }
 
-        // Wait for session to be fully established
         const initTimeout = setTimeout(() => {
-            // Define ALL channels we need in ONE array
             const channels = [
                 `databases.${DATABASE_ID}.collections.${COLLECTIONS.DM_CHANNELS}.documents`,
                 `databases.${DATABASE_ID}.collections.${COLLECTIONS.MESSAGES}.documents`,
@@ -75,9 +59,7 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
             ];
 
             try {
-                // ONE subscription with ALL channels
                 unsubscribeRef.current = client.subscribe(channels, (response) => {
-                    // Extract collection from events
                     const event = response.events[0] || '';
                     const collectionMatch = event.match(/collections\.([^.]+)/);
                     const collection = collectionMatch?.[1] || '';
@@ -88,7 +70,6 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
                         payload: response.payload,
                     };
 
-                    // Notify all listeners
                     listenersRef.current.forEach((listener) => {
                         try {
                             listener(realtimeEvent);
@@ -104,7 +85,7 @@ export function RealtimeProvider({ children }: RealtimeProviderProps) {
                 console.error('[RealtimeProvider] Failed to subscribe:', err);
                 setIsConnected(false);
             }
-        }, 1000); // Wait 1s after auth before subscribing
+        }, 1000);
 
         return () => {
             clearTimeout(initTimeout);

@@ -21,20 +21,15 @@ export interface ActiveCall {
 }
 
 interface UseCallReturn {
-    // State
     currentCall: ActiveCall | null;
     incomingCall: ActiveCall | null;
     isInCall: boolean;
     isCalling: boolean;
-
-    // WebRTC state (proxied from useWebRTC)
     isMuted: boolean;
     isVideoOn: boolean;
     isScreenSharing: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
-
-    // Actions
     startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
     answerCall: () => Promise<void>;
     declineCall: () => Promise<void>;
@@ -44,32 +39,22 @@ interface UseCallReturn {
     toggleScreenShare: () => Promise<void>;
 }
 
-/**
- * Hook for managing 1:1 voice/video calls with signaling
- */
 export function useCall(): UseCallReturn {
     const { user } = useAuthStore();
     const [currentCall, setCurrentCall] = useState<ActiveCall | null>(null);
     const [incomingCall, setIncomingCall] = useState<ActiveCall | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
-    // WebRTC hook - only initialize when in a call
-    // Calculate target user ID - use incomingCall when answering (before currentCall is set)
-    // CRITICAL: These values are used for initial hook setup, but actual values 
-    // are passed directly via overrides in startCall/answerCall to avoid stale closures
     const targetUserId = useMemo(() => {
         const call = currentCall || incomingCall;
         if (!call) return '';
         return call.callerId === user?.$id ? call.receiverId : call.callerId;
     }, [currentCall, incomingCall, user?.$id]);
 
-    // Determine if this user is the call initiator (caller sends offer, receiver waits)
-    // CRITICAL: Caller (who creates the call) is ALWAYS initiator
-    // This is passed as override to joinChannel to avoid stale closure issues
     const isInitiator = useMemo(() => {
         const call = currentCall || incomingCall;
-        if (!call) return true; // Default to true
-        return call.callerId === user?.$id; // Caller is initiator
+        if (!call) return true;
+        return call.callerId === user?.$id;
     }, [currentCall, incomingCall, user?.$id]);
 
     const webRTC = useWebRTC({
@@ -83,12 +68,10 @@ export function useCall(): UseCallReturn {
 
     const callTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Start a call to a friend
     const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
         try {
-            // Create call document via server function to handle permissions
             const execution = await functions.createExecution(
                 'create-call',
                 JSON.stringify({
@@ -98,12 +81,10 @@ export function useCall(): UseCallReturn {
                 })
             );
 
-            // Check execution status
             if (execution.status === 'failed') {
                 throw new Error('Function execution failed: ' + (execution.responseBody || execution.errors || 'Unknown error'));
             }
 
-            // Safely parse response
             if (!execution.responseBody) {
                 throw new Error('Empty response from server. Please log in again.');
             }
@@ -123,7 +104,6 @@ export function useCall(): UseCallReturn {
 
             setCurrentCall(call as unknown as ActiveCall);
 
-            // Auto-end call after 30 seconds if not answered
             callTimeoutRef.current = setTimeout(async () => {
                 if (call.$id) {
                     try {
@@ -134,14 +114,11 @@ export function useCall(): UseCallReturn {
                             { status: 'ended' }
                         );
                     } catch {
-                        // Call may have already been deleted
                     }
                 }
             }, 30000);
 
-            // Join WebRTC channel - PASS VALUES DIRECTLY since React hasn't re-rendered yet
-            // CRITICAL: Pass isInitiator=true since WE are starting the call (we're the caller)
-            const callTargetUserId = friendId; // The person we're calling
+            const callTargetUserId = friendId;
             await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId, isInitiator: true });
         } catch (err) {
             console.error('Failed to start call:', err);
@@ -149,12 +126,10 @@ export function useCall(): UseCallReturn {
         }
     }, [user?.$id, webRTC]);
 
-    // Answer an incoming call
     const answerCall = useCallback(async () => {
         if (!incomingCall) return;
 
         try {
-            // Update call status
             await databases.updateDocument(
                 DATABASE_ID,
                 COLLECTIONS.ACTIVE_CALLS,
@@ -162,16 +137,13 @@ export function useCall(): UseCallReturn {
                 { status: 'answered' }
             );
 
-            // Update local state with correct status (incomingCall still has 'ringing')
             setCurrentCall({
                 ...incomingCall,
                 status: 'answered'
             });
             setIncomingCall(null);
 
-            // Join WebRTC channel - PASS VALUES since incomingCall has correct data
-            // CRITICAL: Pass isInitiator=false since WE are answering (they called us, we wait for offer)
-            const answerTargetUserId = incomingCall.callerId; // The person who called us
+            const answerTargetUserId = incomingCall.callerId;
             await webRTC.joinChannel({ channelId: incomingCall.channelId, targetUserId: answerTargetUserId, isInitiator: false });
         } catch (err) {
             console.error('Failed to answer call:', err);
@@ -179,7 +151,6 @@ export function useCall(): UseCallReturn {
         }
     }, [incomingCall, webRTC]);
 
-    // Decline an incoming call
     const declineCall = useCallback(async () => {
         if (!incomingCall) return;
 
@@ -197,7 +168,6 @@ export function useCall(): UseCallReturn {
         }
     }, [incomingCall]);
 
-    // End the current call
     const endCall = useCallback(async () => {
         if (callTimeoutRef.current) {
             clearTimeout(callTimeoutRef.current);
@@ -213,7 +183,6 @@ export function useCall(): UseCallReturn {
                     { status: 'ended' }
                 );
             } catch {
-                // Call may have already been deleted
             }
         }
 
@@ -222,7 +191,6 @@ export function useCall(): UseCallReturn {
         setRemoteStream(null);
     }, [currentCall, webRTC]);
 
-    // Toggle screen share with 1080p 60fps
     const toggleScreenShare = useCallback(async () => {
         if (webRTC.isScreenSharing) {
             webRTC.stopScreenShare();
@@ -231,19 +199,16 @@ export function useCall(): UseCallReturn {
         }
     }, [webRTC]);
 
-    // Subscribe to incoming calls via centralized provider
     const { subscribe } = useRealtime();
 
     useEffect(() => {
         if (!user?.$id) return;
 
-        // Listen to call events from centralized subscription
         const unsubscribe = subscribe(async (event) => {
             if (event.collection !== COLLECTIONS.ACTIVE_CALLS) return;
 
             const call = event.payload as ActiveCall;
 
-            // Incoming call (user is receiver and call is ringing)
             if (call.receiverId === user.$id && call.status === 'ringing' && event.event.includes('.create')) {
                 try {
                     const callerDoc = await databases.getDocument(DATABASE_ID, COLLECTIONS.USERS, call.callerId);
@@ -256,13 +221,11 @@ export function useCall(): UseCallReturn {
                 }
             }
 
-            // Call was answered (update for caller)
             if (call.callerId === user.$id && call.status === 'answered') {
                 if (callTimeoutRef.current) {
                     clearTimeout(callTimeoutRef.current);
                     callTimeoutRef.current = null;
                 }
-                // CRITICAL FIX: Null-safe spread - if prev is null, use call as base
                 setCurrentCall(prev => {
                     if (!prev) {
                         return { ...call, status: 'answered' };
@@ -271,7 +234,6 @@ export function useCall(): UseCallReturn {
                 });
             }
 
-            // Call ended or declined
             if ((call.status === 'ended' || call.status === 'declined') &&
                 (call.callerId === user.$id || call.receiverId === user.$id)) {
                 if (call.$id === currentCall?.$id) {
@@ -287,20 +249,15 @@ export function useCall(): UseCallReturn {
         return unsubscribe;
     }, [user?.$id, currentCall?.$id, incomingCall?.$id, webRTC, subscribe]);
 
-    // Handle remote streams from WebRTC
-    // CRITICAL FIX: Use participants.size to trigger when Map changes
-    // Also serialize participant IDs to detect new participants
     const participantsSize = webRTC.participants.size;
     const participantIds = Array.from(webRTC.participants.keys()).join(',');
-    
+
     useEffect(() => {
         const participantsArray = Array.from(webRTC.participants.values());
-        
+
         if (participantsArray.length > 0) {
-            // Find the first participant with a valid stream
             const participantWithStream = participantsArray.find(p => p.stream);
             if (participantWithStream?.stream) {
-                // Only update if stream actually changed to prevent infinite loops
                 if (remoteStream !== participantWithStream.stream) {
                     console.log('[useCall] Setting remote stream from participant:', participantWithStream.odId);
                     setRemoteStream(participantWithStream.stream);
@@ -309,7 +266,6 @@ export function useCall(): UseCallReturn {
         }
     }, [participantsSize, participantIds, webRTC.participants, remoteStream]);
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => {
             if (callTimeoutRef.current) {
