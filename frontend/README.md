@@ -21,7 +21,7 @@ src/
 ├── lib/               # Core libraries
 │   ├── appwrite.ts    # Appwrite client
 │   ├── permissions.ts # Bitwise permission system
-│   └── utils.ts       # Utility functions
+│   └── utils.ts       # Utility functions ggg
 ├── pages/             # Page components
 │   ├── auth/          # Login/Register
 │   ├── HomePage.tsx   # DMs and friends
