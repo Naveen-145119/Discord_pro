@@ -1,3 +1,13 @@
+/**
+ * useMediaDevices - Hook for managing audio/video device selection
+ * 
+ * Provides:
+ * - List of available microphones, speakers, cameras
+ * - Selected device state
+ * - Permission management
+ * - Device hot-plugging support
+ */
+
 import { useCallback, useEffect, useState } from 'react';
 
 export interface MediaDevice {
@@ -7,14 +17,21 @@ export interface MediaDevice {
 }
 
 interface UseMediaDevicesReturn {
+    // Device lists
     audioInputs: MediaDevice[];
     audioOutputs: MediaDevice[];
     videoInputs: MediaDevice[];
+
+    // Selected devices
     selectedAudioInput: string | null;
     selectedAudioOutput: string | null;
     selectedVideoInput: string | null;
+
+    // Permissions
     hasAudioPermission: boolean;
     hasVideoPermission: boolean;
+
+    // Actions
     selectAudioInput: (deviceId: string) => void;
     selectAudioOutput: (deviceId: string) => void;
     selectVideoInput: (deviceId: string) => void;
@@ -66,76 +83,48 @@ export function useMediaDevices(): UseMediaDevicesReturn {
             setAudioOutputs(outputs);
             setVideoInputs(videos);
 
-            setSelectedAudioInput(prev => {
-                if (prev) return prev;
-                return inputs.length > 0 ? inputs[0].deviceId : null;
-            });
-
-            setSelectedAudioOutput(prev => {
-                if (prev) return prev;
-                return outputs.length > 0 ? outputs[0].deviceId : null;
-            });
-
-            setSelectedVideoInput(prev => {
-                if (prev) return prev;
-                return videos.length > 0 ? videos[0].deviceId : null;
-            });
+            // Auto-select first device if none selected
+            setSelectedAudioInput(prev => prev ?? (inputs[0]?.deviceId ?? null));
+            setSelectedAudioOutput(prev => prev ?? (outputs[0]?.deviceId ?? null));
+            setSelectedVideoInput(prev => prev ?? (videos[0]?.deviceId ?? null));
         } catch (error) {
-            console.error('Failed to enumerate devices:', error);
+            console.error('[useMediaDevices] Failed to enumerate devices:', error);
         }
     }, []);
 
     const requestPermissions = useCallback(async (): Promise<boolean> => {
         try {
+            // Try to get both audio and video
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
                 video: true,
             });
 
-            stream.getTracks().forEach((track) => track.stop());
-
+            stream.getTracks().forEach(track => track.stop());
             setHasAudioPermission(true);
             setHasVideoPermission(true);
-
             await refreshDevices();
-
             return true;
         } catch {
+            // Fall back to audio only
             try {
-                const audioStream = await navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                });
-                audioStream.getTracks().forEach((track) => track.stop());
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioStream.getTracks().forEach(track => track.stop());
                 setHasAudioPermission(true);
                 await refreshDevices();
             } catch {
                 setHasAudioPermission(false);
             }
-
             setHasVideoPermission(false);
             return false;
         }
     }, [refreshDevices]);
 
-    const selectAudioInput = useCallback((deviceId: string) => {
-        setSelectedAudioInput(deviceId);
-    }, []);
-
-    const selectAudioOutput = useCallback((deviceId: string) => {
-        setSelectedAudioOutput(deviceId);
-    }, []);
-
-    const selectVideoInput = useCallback((deviceId: string) => {
-        setSelectedVideoInput(deviceId);
-    }, []);
-
+    // Device change listener
     useEffect(() => {
         refreshDevices();
 
-        const handleDeviceChange = () => {
-            refreshDevices();
-        };
-
+        const handleDeviceChange = () => refreshDevices();
         navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
 
         return () => {
@@ -152,9 +141,9 @@ export function useMediaDevices(): UseMediaDevicesReturn {
         selectedVideoInput,
         hasAudioPermission,
         hasVideoPermission,
-        selectAudioInput,
-        selectAudioOutput,
-        selectVideoInput,
+        selectAudioInput: setSelectedAudioInput,
+        selectAudioOutput: setSelectedAudioOutput,
+        selectVideoInput: setSelectedVideoInput,
         requestPermissions,
         refreshDevices,
     };

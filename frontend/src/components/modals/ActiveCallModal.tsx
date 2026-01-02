@@ -12,23 +12,31 @@ import {
     Maximize2,
     Minimize2,
     Signal,
-    Clock
+    Clock,
+    Headphones,
+    HeadphoneOff
 } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
+import type { CallParticipant } from '@/lib/webrtc';
+import { ScreenShareCard, ParticipantCard } from '@/components/call';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
     friend: User;
     isMuted: boolean;
+    isDeafened: boolean;
     isVideoOn: boolean;
     isScreenSharing: boolean;
+    isSpeaking: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
     remoteStreamVersion: number;
+    remoteParticipant: CallParticipant | null;
     isCalling: boolean;
     onEndCall: () => void;
     onToggleMute: () => void;
+    onToggleDeafen: () => void;
     onToggleVideo: () => Promise<void>;
     onToggleScreenShare: () => Promise<void>;
 }
@@ -37,14 +45,18 @@ export function ActiveCallModal({
     call: _call,
     friend,
     isMuted,
+    isDeafened,
     isVideoOn,
     isScreenSharing,
+    isSpeaking,
     localStream,
     remoteStream,
     remoteStreamVersion,
+    remoteParticipant,
     isCalling,
     onEndCall,
     onToggleMute,
+    onToggleDeafen,
     onToggleVideo,
     onToggleScreenShare,
 }: ActiveCallModalProps) {
@@ -437,6 +449,9 @@ export function ActiveCallModal({
 
     const hasRemoteVideo = remoteStream?.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
 
+    // Check for local video (camera is on and has live tracks)
+    const hasLocalVideo = isVideoOn && localStream?.getVideoTracks().some(t => t.readyState === 'live');
+
     // Detect if remote video is likely a screen share (check video track settings)
     const isRemoteScreenShare = hasRemoteVideo && remoteStream?.getVideoTracks().some(t => {
         const settings = t.getSettings();
@@ -630,32 +645,33 @@ export function ActiveCallModal({
                 }`}>
                 {hasRemoteVideo ? (
                     <div className="relative w-full h-full flex items-center justify-center">
-                        {/* Screen share indicator banner - hide in fullscreen for cleaner view */}
-                        {isRemoteScreenShare && !isFullscreen && (
-                            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-4 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm shadow-lg">
-                                <MonitorUp size={16} />
-                                {friend.displayName} is sharing their screen
-                            </div>
+                        {isRemoteScreenShare ? (
+                            /* USE NEW ScreenShareCard COMPONENT */
+                            <ScreenShareCard
+                                key={`remote-screen-${remoteStream?.id}`}
+                                stream={remoteStream!}
+                                sharerName={friend.displayName || 'Unknown'}
+                                sharerId={friend.$id || 'remote'}
+                                isFocused={isFullscreen}
+                            />
+                        ) : (
+                            /* USE NEW ParticipantCard COMPONENT for remote camera */
+                            <ParticipantCard
+                                key={`remote-video-${remoteStream?.id}`}
+                                odId={friend.$id || 'remote'}
+                                displayName={friend.displayName || 'Unknown'}
+                                stream={remoteStream}
+                                isMuted={remoteParticipant?.isMuted ?? false}
+                                isVideoOn={remoteParticipant?.isVideoOn ?? true}
+                                isSpeaking={remoteParticipant?.isSpeaking ?? false}
+                                avatarUrl={friend.avatarUrl || undefined}
+                                size="focused"
+                                isFocused
+                            />
                         )}
-                        <video
-                            ref={remoteVideoRef}
-                            autoPlay
-                            playsInline
-                            className={`${isFullscreen && isRemoteScreenShare ? '' : 'rounded-lg'} ${isRemoteScreenShare
-                                    ? 'w-full h-full object-contain'
-                                    : 'max-w-full max-h-full object-contain'
-                                }`}
-                            style={{
-                                // For fullscreen screen share, fill entire screen
-                                maxHeight: '100%',
-                                maxWidth: '100%',
-                                // In fullscreen with screen share, use object-contain to show full screen
-                                objectFit: isFullscreen && isRemoteScreenShare ? 'contain' : 'contain',
-                            }}
-                        />
                         {/* Fullscreen controls overlay - show on hover in fullscreen */}
                         {isFullscreen && (
-                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 opacity-0 hover:opacity-100 transition-opacity duration-300">
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 z-20">
                                 <div className="flex items-center justify-center gap-4">
                                     <button
                                         onClick={onToggleMute}
@@ -707,20 +723,20 @@ export function ActiveCallModal({
                     </div>
                 )}
 
-                {/* Local Video Preview (PiP style) */}
-                {localStream && isVideoOn && (
-                    <div className="absolute bottom-4 right-4 w-48 aspect-video bg-black rounded-lg overflow-hidden shadow-2xl border-2 border-gray-700 hover:border-gray-500 transition-colors">
-                        <video
-                            ref={localVideoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                            className="w-full h-full object-cover"
-                            style={{ transform: 'scaleX(-1)' }}
+                {/* Local Video Preview - USE NEW ParticipantCard COMPONENT */}
+                {localStream && hasLocalVideo && (
+                    <div className="absolute bottom-24 right-4 z-10">
+                        <ParticipantCard
+                            key={`local-video-${localStream.id}`}
+                            odId="local"
+                            displayName="You"
+                            stream={localStream}
+                            isMuted={isMuted}
+                            isVideoOn={isVideoOn}
+                            isSpeaking={isSpeaking}
+                            isLocal
+                            size="thumbnail"
                         />
-                        <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-xs text-white">
-                            You
-                        </div>
                     </div>
                 )}
 
@@ -741,20 +757,32 @@ export function ActiveCallModal({
                     <button
                         onClick={onToggleMute}
                         className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isMuted
-                                ? 'bg-red-500 text-white hover:bg-red-600'
-                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
                             }`}
                         title={isMuted ? 'Unmute' : 'Mute'}
                     >
                         {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
                     </button>
 
+                    {/* Deafen */}
+                    <button
+                        onClick={onToggleDeafen}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isDeafened
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            }`}
+                        title={isDeafened ? 'Undeafen' : 'Deafen'}
+                    >
+                        {isDeafened ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
+                    </button>
+
                     {/* Video */}
                     <button
                         onClick={onToggleVideo}
                         className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${!isVideoOn
-                                ? 'bg-red-500 text-white hover:bg-red-600'
-                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
                             }`}
                         title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
                     >
@@ -765,8 +793,8 @@ export function ActiveCallModal({
                     <button
                         onClick={onToggleScreenShare}
                         className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isScreenSharing
-                                ? 'bg-green-500 text-white hover:bg-green-600'
-                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            ? 'bg-green-500 text-white hover:bg-green-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
                             }`}
                         title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
                     >

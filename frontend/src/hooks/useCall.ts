@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
 import { useRealtime } from '@/providers/RealtimeProvider';
 import type { User, CallLogMetadata } from '@/types';
+import type { CallParticipant } from '@/lib/webrtc';
 
 export type CallStatus = 'ringing' | 'answered' | 'ended' | 'declined';
 export type CallType = 'voice' | 'video';
@@ -26,16 +27,20 @@ interface UseCallReturn {
     isInCall: boolean;
     isCalling: boolean;
     isMuted: boolean;
+    isDeafened: boolean;
     isVideoOn: boolean;
     isScreenSharing: boolean;
+    isSpeaking: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
     remoteStreamVersion: number;
+    remoteParticipant: CallParticipant | null;
     startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
     answerCall: () => Promise<void>;
     declineCall: () => Promise<void>;
     endCall: () => Promise<void>;
     toggleMute: () => void;
+    toggleDeafen: () => void;
     toggleVideo: () => Promise<void>;
     toggleScreenShare: () => Promise<void>;
 }
@@ -432,22 +437,32 @@ export function useCall(): UseCallReturn {
         };
     }, []);
 
+    // Get the remote participant (first in the map for DM calls)
+    const remoteParticipant = useMemo(() => {
+        const participants = Array.from(webRTC.participants.values());
+        return participants.length > 0 ? participants[0] : null;
+    }, [webRTC.participants]);
+
     return {
         currentCall,
         incomingCall,
         isInCall: !!currentCall && currentCall.status === 'answered',
         isCalling: !!currentCall && currentCall.status === 'ringing',
         isMuted: webRTC.isMuted,
+        isDeafened: webRTC.isDeafened,
         isVideoOn: webRTC.isVideoOn,
         isScreenSharing: webRTC.isScreenSharing,
+        isSpeaking: webRTC.isSpeaking,
         localStream: webRTC.localStream,
         remoteStream,
         remoteStreamVersion,
+        remoteParticipant,
         startCall,
         answerCall,
         declineCall,
         endCall,
         toggleMute: webRTC.toggleMute,
+        toggleDeafen: webRTC.toggleDeafen,
         toggleVideo: webRTC.toggleVideo,
         toggleScreenShare,
     };

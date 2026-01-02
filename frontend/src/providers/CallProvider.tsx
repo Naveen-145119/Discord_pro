@@ -75,14 +75,18 @@ export function CallProvider({ children }: CallProviderProps) {
                     call={call.currentCall}
                     friend={currentFriend}
                     isMuted={call.isMuted}
+                    isDeafened={call.isDeafened}
                     isVideoOn={call.isVideoOn}
                     isScreenSharing={call.isScreenSharing}
+                    isSpeaking={call.isSpeaking}
                     localStream={call.localStream}
                     remoteStream={call.remoteStream}
                     remoteStreamVersion={call.remoteStreamVersion}
+                    remoteParticipant={call.remoteParticipant}
                     isCalling={call.isCalling}
                     onEndCall={call.endCall}
                     onToggleMute={call.toggleMute}
+                    onToggleDeafen={call.toggleDeafen}
                     onToggleVideo={call.toggleVideo}
                     onToggleScreenShare={call.toggleScreenShare}
                 />

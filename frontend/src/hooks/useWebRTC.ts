@@ -393,6 +393,46 @@ export function useWebRTC({
                     });
                     console.log('[WebRTC] Remote description (offer) set');
 
+                    // CRITICAL FIX: After renegotiation, check for removed video tracks
+                    // This handles when remote peer stops screen share or camera
+                    const receivers = pc.getReceivers();
+                    const liveVideoReceivers = receivers.filter(r =>
+                        r.track?.kind === 'video' && r.track?.readyState === 'live'
+                    );
+                    const liveAudioReceivers = receivers.filter(r =>
+                        r.track?.kind === 'audio' && r.track?.readyState === 'live'
+                    );
+
+                    console.log('[WebRTC] Renegotiation receivers - audio:', liveAudioReceivers.length, 'video:', liveVideoReceivers.length);
+
+                    // Update participant state based on current receivers
+                    setParticipants((prev) => {
+                        const updated = new Map(prev);
+                        const existing = updated.get(peerId);
+
+                        if (liveVideoReceivers.length === 0 && existing?.isVideoOn) {
+                            // Video was removed - create new stream without video
+                            console.log('[WebRTC] Video track removed during renegotiation for:', peerId);
+                            const newStream = new MediaStream();
+
+                            // Only add live audio tracks to new stream
+                            liveAudioReceivers.forEach(r => {
+                                if (r.track && r.track.readyState === 'live') {
+                                    newStream.addTrack(r.track);
+                                }
+                            });
+
+                            updated.set(peerId, {
+                                ...existing,
+                                stream: newStream,
+                                isVideoOn: false,
+                                isScreenSharing: false,
+                            });
+                        }
+
+                        return updated;
+                    });
+
                     const queuedCandidates = pendingIceCandidatesRef.current.get(peerId) || [];
                     if (queuedCandidates.length > 0) {
                         console.log('[WebRTC] Flushing', queuedCandidates.length, 'queued ICE candidates');
