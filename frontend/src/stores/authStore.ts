@@ -1,8 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { account, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { account, databases, storage, DATABASE_ID, COLLECTIONS, BUCKETS } from '@/lib/appwrite';
 import type { User } from '@/types';
 import { ID, Query } from 'appwrite';
+
+interface ProfileUpdate {
+    avatar?: File;
+    banner?: File;
+    displayName?: string;
+    bio?: string;
+}
 
 interface AuthState {
     user: User | null;
@@ -10,11 +17,13 @@ interface AuthState {
     isLoading: boolean;
     isAuthenticated: boolean;
     error: string | null;
+    isUpdatingProfile: boolean;
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string, username: string) => Promise<void>;
     logout: () => Promise<void>;
     checkSession: () => Promise<void>;
     updateUser: (updates: Partial<User>) => void;
+    updateProfile: (updates: ProfileUpdate) => Promise<void>;
     clearError: () => void;
 }
 
@@ -26,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
             isLoading: true,
             isAuthenticated: false,
             error: null,
+            isUpdatingProfile: false,
 
             login: async (email, password) => {
                 set({ isLoading: true, error: null });
@@ -188,6 +198,103 @@ export const useAuthStore = create<AuthState>()(
                 set((state) => ({
                     user: state.user ? { ...state.user, ...updates } : null,
                 }));
+            },
+
+            /**
+             * Update user profile with avatar/banner uploads
+             * Uploads files to Appwrite Storage and updates user document
+             */
+            updateProfile: async (updates) => {
+                const { user } = get();
+                if (!user) throw new Error('Not authenticated');
+
+                set({ isUpdatingProfile: true, error: null });
+
+                try {
+                    const documentUpdates: Record<string, string | null> = {};
+
+                    // Upload avatar if provided
+                    if (updates.avatar) {
+                        // Delete old avatar if exists
+                        if (user.avatarUrl) {
+                            const oldFileId = user.avatarUrl.split('/files/')[1]?.split('/')[0];
+                            if (oldFileId) {
+                                await storage.deleteFile(BUCKETS.AVATARS, oldFileId).catch(() => { });
+                            }
+                        }
+
+                        const avatarFile = await storage.createFile(
+                            BUCKETS.AVATARS,
+                            ID.unique(),
+                            updates.avatar
+                        );
+
+                        const avatarUrl = storage.getFilePreview(
+                            BUCKETS.AVATARS,
+                            avatarFile.$id,
+                            200, // width
+                            200, // height
+                            undefined, // gravity
+                            100 // quality
+                        );
+
+                        documentUpdates.avatarUrl = avatarUrl.toString();
+                    }
+
+                    // Upload banner if provided
+                    if (updates.banner) {
+                        // Delete old banner if exists
+                        if (user.bannerUrl) {
+                            const oldFileId = user.bannerUrl.split('/files/')[1]?.split('/')[0];
+                            if (oldFileId) {
+                                await storage.deleteFile(BUCKETS.BANNERS, oldFileId).catch(() => { });
+                            }
+                        }
+
+                        const bannerFile = await storage.createFile(
+                            BUCKETS.BANNERS,
+                            ID.unique(),
+                            updates.banner
+                        );
+
+                        const bannerUrl = storage.getFilePreview(
+                            BUCKETS.BANNERS,
+                            bannerFile.$id,
+                            600, // width
+                            240, // height  
+                            undefined, // gravity
+                            90 // quality
+                        );
+
+                        documentUpdates.bannerUrl = bannerUrl.toString();
+                    }
+
+                    // Add display name and bio if provided
+                    if (updates.displayName !== undefined) {
+                        documentUpdates.displayName = updates.displayName;
+                    }
+                    if (updates.bio !== undefined) {
+                        documentUpdates.bio = updates.bio;
+                    }
+
+                    // Update user document in database
+                    if (Object.keys(documentUpdates).length > 0) {
+                        const updatedUser = await databases.updateDocument(
+                            DATABASE_ID,
+                            COLLECTIONS.USERS,
+                            user.$id,
+                            documentUpdates
+                        ) as unknown as User;
+
+                        set({ user: updatedUser, isUpdatingProfile: false });
+                    } else {
+                        set({ isUpdatingProfile: false });
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Failed to update profile';
+                    set({ error: message, isUpdatingProfile: false });
+                    throw error;
+                }
             },
 
             clearError: () => set({ error: null }),

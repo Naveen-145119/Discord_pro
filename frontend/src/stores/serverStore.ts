@@ -1,14 +1,21 @@
 import { create } from 'zustand';
-import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
-import type { Server, ServerMember, Channel } from '@/types';
+import { databases, functions, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import type { Server, ServerMember, Channel, Role } from '@/types';
 import { ID, Query } from 'appwrite';
 import { DEFAULT_PERMISSIONS } from '@/lib/permissions';
+
+export interface ChannelReorderItem {
+    id: string;
+    position: number;
+    parentId: string | null;
+}
 
 interface ServerState {
     servers: Server[];
     currentServer: Server | null;
     members: ServerMember[];
     channels: Channel[];
+    roles: Role[];
     isLoading: boolean;
     error: string | null;
     fetchServers: (userId: string) => Promise<void>;
@@ -18,6 +25,7 @@ interface ServerState {
     deleteServer: (serverId: string) => Promise<void>;
     joinServer: (serverId: string, userId: string) => Promise<void>;
     leaveServer: (serverId: string, userId: string) => Promise<void>;
+    reorderChannels: (serverId: string, userId: string, updates: ChannelReorderItem[]) => Promise<void>;
     setCurrentServer: (server: Server | null) => void;
     clearError: () => void;
 }
@@ -27,6 +35,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     currentServer: null,
     members: [],
     channels: [],
+    roles: [],
     isLoading: false,
     error: null,
 
@@ -85,10 +94,17 @@ export const useServerStore = create<ServerState>((set, get) => ({
                 [Query.equal('serverId', serverId), Query.limit(100)]
             );
 
+            const roles = await databases.listDocuments(
+                DATABASE_ID,
+                COLLECTIONS.ROLES,
+                [Query.equal('serverId', serverId), Query.orderAsc('position'), Query.limit(100)]
+            );
+
             set({
                 currentServer: server,
                 channels: channels.documents as unknown as Channel[],
                 members: members.documents as unknown as ServerMember[],
+                roles: roles.documents as unknown as Role[],
                 isLoading: false,
             });
         } catch (error) {
@@ -321,6 +337,40 @@ export const useServerStore = create<ServerState>((set, get) => ({
     },
 
     setCurrentServer: (server) => set({ currentServer: server }),
+
+    reorderChannels: async (serverId, userId, updates) => {
+        // Store previous state for rollback
+        const previousChannels = [...get().channels];
+
+        // Optimistic update
+        set((state) => ({
+            channels: state.channels.map((channel) => {
+                const update = updates.find((u) => u.id === channel.$id);
+                if (update) {
+                    return {
+                        ...channel,
+                        position: update.position,
+                        parentId: update.parentId,
+                    };
+                }
+                return channel;
+            }).sort((a, b) => a.position - b.position),
+        }));
+
+        try {
+            await functions.createExecution(
+                'reorder-channels',
+                JSON.stringify({ serverId, userId, channels: updates }),
+                false
+            );
+        } catch (error) {
+            // Rollback on failure
+            set({ channels: previousChannels });
+            const message = error instanceof Error ? error.message : 'Failed to reorder channels';
+            set({ error: message });
+            throw error;
+        }
+    },
 
     clearError: () => set({ error: null }),
 }));

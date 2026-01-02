@@ -18,7 +18,7 @@ import {
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
-import { CallContainer } from '@/components/call';
+import { CallContainer, DeviceSettingsPopover } from '@/components/call';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
@@ -40,6 +40,7 @@ interface ActiveCallModalProps {
     onToggleDeafen: () => void;
     onToggleVideo: () => Promise<void>;
     onToggleScreenShare: () => Promise<void>;
+    onMinimize?: () => void;
 }
 
 export function ActiveCallModal({
@@ -62,6 +63,7 @@ export function ActiveCallModal({
     onToggleDeafen,
     onToggleVideo,
     onToggleScreenShare,
+    onMinimize,
 }: ActiveCallModalProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -80,7 +82,6 @@ export function ActiveCallModal({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
     const [connectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
-    const [isMinimized, setIsMinimized] = useState(false);
 
     // Convert participants Map to Array for CallContainer
     const participantsArray = useMemo(() => Array.from(participants.values()), [participants]);
@@ -463,58 +464,7 @@ export function ActiveCallModal({
             (settings.displaySurface === 'monitor' || settings.displaySurface === 'window');
     });
 
-    // Minimized view (Picture-in-Picture style)
-    if (isMinimized) {
-        return (
-            <div
-                className="fixed bottom-4 right-4 w-80 bg-[#1e1f22] rounded-lg shadow-2xl border border-gray-700 z-[100] overflow-hidden"
-            >
-                <div className="p-3 flex items-center justify-between bg-[#2b2d31]">
-                    <div className="flex items-center gap-2">
-                        <div className="relative">
-                            <div className="w-8 h-8 rounded-full bg-discord-primary flex items-center justify-center overflow-hidden">
-                                {friend.avatarUrl ? (
-                                    <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                    <span className="text-sm font-medium text-white">
-                                        {friend.displayName?.charAt(0) || '?'}
-                                    </span>
-                                )}
-                            </div>
-                            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#2b2d31] ${getStatusColor(friend.status)}`} />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-white">{friend.displayName}</p>
-                            <p className="text-xs text-gray-400 flex items-center gap-1">
-                                <Clock size={10} />
-                                {formatDuration(callDuration)}
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={() => setIsMinimized(false)}
-                        className="p-1.5 rounded hover:bg-white/10 text-gray-400 hover:text-white"
-                    >
-                        <Maximize2 size={16} />
-                    </button>
-                </div>
-                <div className="p-2 flex items-center justify-center gap-2">
-                    <button
-                        onClick={onToggleMute}
-                        className={`p-2 rounded-full ${isMuted ? 'bg-red-500' : 'bg-gray-600 hover:bg-gray-500'}`}
-                    >
-                        {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-                    </button>
-                    <button
-                        onClick={onEndCall}
-                        className="p-2 rounded-full bg-red-500 hover:bg-red-600"
-                    >
-                        <Phone size={16} className="rotate-[135deg]" />
-                    </button>
-                </div>
-            </div>
-        );
-    }
+
 
     return (
         <div
@@ -634,7 +584,7 @@ export function ActiveCallModal({
 
                     {/* Minimize */}
                     <button
-                        onClick={() => setIsMinimized(true)}
+                        onClick={onMinimize}
                         className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                         title="Minimize to PiP"
                     >
@@ -683,6 +633,9 @@ export function ActiveCallModal({
                     >
                         {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
                     </button>
+
+                    {/* Device Settings */}
+                    <DeviceSettingsPopover />
 
                     {/* Deafen */}
                     <button

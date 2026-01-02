@@ -14,3 +14,5 @@ export { ParticipantCard, type ParticipantCardProps } from './ParticipantCard';
 export { ScreenShareCard, type ScreenShareCardProps } from './ScreenShareCard';
 export { ThumbnailStrip, type ThumbnailStripProps } from './ThumbnailStrip';
 export { CallContainer, type CallContainerProps } from './CallContainer';
+export { DeviceSettingsPopover } from './DeviceSettingsPopover';
+export { MiniPlayer } from './MiniPlayer';

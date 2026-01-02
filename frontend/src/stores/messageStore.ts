@@ -8,6 +8,7 @@ const MESSAGES_PER_PAGE = 50;
 interface MessageState {
     messages: Message[];
     currentChannel: Channel | null;
+    replyingTo: Message | null;
     hasMore: boolean;
     isLoading: boolean;
     isSending: boolean;
@@ -21,6 +22,8 @@ interface MessageState {
     updateMessage: (message: Message) => void;
     removeMessage: (messageId: string) => void;
     setCurrentChannel: (channel: Channel | null) => void;
+    setReplyingTo: (message: Message | null) => void;
+    clearReplyingTo: () => void;
     addTypingUser: (userId: string, username: string) => void;
     removeTypingUser: (userId: string) => void;
     clearMessages: () => void;
@@ -30,6 +33,7 @@ interface MessageState {
 export const useMessageStore = create<MessageState>((set, get) => ({
     messages: [],
     currentChannel: null,
+    replyingTo: null,
     hasMore: true,
     isLoading: false,
     isSending: false,
@@ -191,9 +195,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             currentChannel: channel,
             messages: [],
             hasMore: true,
+            replyingTo: null,
             typingUsers: new Map(),
         });
     },
+
+    setReplyingTo: (message) => set({ replyingTo: message }),
+
+    clearReplyingTo: () => set({ replyingTo: null }),
 
     addTypingUser: (userId, username) => {
         set((state) => {

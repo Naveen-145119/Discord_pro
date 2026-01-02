@@ -88,6 +88,16 @@ export interface Channel extends BaseDocument {
     bitrate: number | null;
     participantIds?: string[];
     lastMessageAt?: string | null;
+    permissionOverwrites?: ChannelOverwrite[];
+}
+
+export type OverwriteType = 'role' | 'member';
+
+export interface ChannelOverwrite {
+    id: string;           // Role or User ID
+    type: OverwriteType;  // 'role' or 'member'
+    allow: string;        // Bitwise permissions to allow
+    deny: string;         // Bitwise permissions to deny
 }
 
 export type MessageType = 'default' | 'reply' | 'system' | 'join' | 'leave' | 'call';

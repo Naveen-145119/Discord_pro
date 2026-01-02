@@ -148,3 +148,97 @@ export function useMediaDevices(): UseMediaDevicesReturn {
         refreshDevices,
     };
 }
+
+/**
+ * Helper function to replace a track in a peer connection
+ * Used for hot-swapping devices without dropping the call
+ */
+export async function replaceTrackInConnection(
+    pc: RTCPeerConnection,
+    newTrack: MediaStreamTrack,
+    oldTrackId?: string
+): Promise<boolean> {
+    const senders = pc.getSenders();
+    const targetSender = senders.find(s =>
+        s.track?.kind === newTrack.kind &&
+        (oldTrackId ? s.track?.id === oldTrackId : true)
+    );
+
+    if (targetSender) {
+        try {
+            await targetSender.replaceTrack(newTrack);
+            console.log('[useMediaDevices] Replaced track:', newTrack.kind, newTrack.label);
+            return true;
+        } catch (err) {
+            console.error('[useMediaDevices] Failed to replace track:', err);
+            return false;
+        }
+    }
+
+    console.warn('[useMediaDevices] No matching sender found for track:', newTrack.kind);
+    return false;
+}
+
+/**
+ * Set audio output device on an HTMLMediaElement (for speaker selection)
+ * Note: setSinkId is not supported in all browsers
+ */
+export async function setAudioOutputDevice(
+    element: HTMLMediaElement,
+    deviceId: string
+): Promise<boolean> {
+    // Check if setSinkId is supported
+    if (!('setSinkId' in element)) {
+        console.warn('[useMediaDevices] setSinkId not supported in this browser');
+        return false;
+    }
+
+    try {
+        await (element as HTMLMediaElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId);
+        console.log('[useMediaDevices] Set audio output to:', deviceId);
+        return true;
+    } catch (err) {
+        console.error('[useMediaDevices] Failed to set audio output:', err);
+        return false;
+    }
+}
+
+/**
+ * Get a new MediaStreamTrack from a specific device
+ * Used when hot-swapping to a different device
+ */
+export async function getTrackFromDevice(
+    kind: 'audio' | 'video',
+    deviceId: string
+): Promise<MediaStreamTrack | null> {
+    try {
+        const constraints: MediaStreamConstraints = kind === 'audio'
+            ? {
+                audio: {
+                    deviceId: { exact: deviceId },
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+                video: false,
+            }
+            : {
+                audio: false,
+                video: {
+                    deviceId: { exact: deviceId },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30 },
+                },
+            };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const track = kind === 'audio' ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
+
+        console.log('[useMediaDevices] Got new track from device:', deviceId, track?.label);
+        return track || null;
+    } catch (err) {
+        console.error('[useMediaDevices] Failed to get track from device:', deviceId, err);
+        return null;
+    }
+}

@@ -18,6 +18,7 @@ import { useMessageStore, subscribeToMessages } from '@/stores/messageStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMessageTime } from '@/lib/utils';
+import { usePermission, PERMISSIONS } from '@/hooks/usePermission';
 import type { Message as MessageType } from '@/types';
 
 export function ChannelPage() {
@@ -40,6 +41,9 @@ export function ChannelPage() {
     const messagesContainerRef = useRef<HTMLDivElement>(null);
 
     const currentChannel = channels.find((c: { $id: string }) => c.$id === channelId);
+    const serverId = currentChannel?.serverId || undefined;
+    const { can } = usePermission(serverId ?? undefined, channelId);
+    const canSendMessages = can(PERMISSIONS.SEND_MESSAGES);
 
     useEffect(() => {
         if (channelId && currentChannel) {
@@ -195,9 +199,9 @@ export function ChannelPage() {
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={`Message #${currentChannel.name}`}
-                        className="flex-1 bg-transparent py-2.5 text-text-normal placeholder:text-text-muted focus:outline-none"
-                        disabled={isSending}
+                        placeholder={canSendMessages ? `Message #${currentChannel.name}` : 'You do not have permission to send messages in this channel'}
+                        className={`flex-1 bg-transparent py-2.5 text-text-normal placeholder:text-text-muted focus:outline-none ${!canSendMessages ? 'cursor-not-allowed opacity-50' : ''}`}
+                        disabled={isSending || !canSendMessages}
                     />
 
                     <div className="flex items-center gap-1">

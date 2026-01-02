@@ -1,0 +1,8 @@
+{
+    "name": "reorder-channels",
+    "version": "1.0.0",
+    "type": "module",
+    "dependencies": {
+        "node-appwrite": "^11.0.0"
+    }
+}

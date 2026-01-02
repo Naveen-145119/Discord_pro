@@ -118,3 +118,118 @@ export function createPermissionBits(permissions: PermissionKey[]): string {
 
     return bits.toString();
 }
+
+// --- Advanced Permission Computation ---
+
+import type { Role, ServerMember, ChannelOverwrite, Server } from '@/types';
+
+/**
+ * Computes base permissions for a member from their roles.
+ * Admin bypass: If any role has ADMINISTRATOR, returns ALL_PERMISSIONS.
+ */
+export function computeMemberBasePermissions(
+    member: ServerMember,
+    server: Server,
+    roles: Role[]
+): bigint {
+    // Server owner has all permissions
+    if (member.userId === server.ownerId) {
+        return ALL_PERMISSIONS;
+    }
+
+    let permissions = 0n;
+
+    // Get @everyone role (position 0)
+    const everyoneRole = roles.find(r => r.name === '@everyone' && r.serverId === server.$id);
+    if (everyoneRole) {
+        permissions |= BigInt(everyoneRole.permissions || '0');
+    }
+
+    // Parse member's roleIds (stored as JSON string)
+    const memberRoleIds: string[] = typeof member.roleIds === 'string'
+        ? JSON.parse(member.roleIds || '[]')
+        : member.roleIds || [];
+
+    // Combine permissions from all member roles
+    for (const roleId of memberRoleIds) {
+        const role = roles.find(r => r.$id === roleId);
+        if (role) {
+            permissions |= BigInt(role.permissions || '0');
+        }
+    }
+
+    // Administrator bypass
+    if ((permissions & PERMISSIONS.ADMINISTRATOR) === PERMISSIONS.ADMINISTRATOR) {
+        return ALL_PERMISSIONS;
+    }
+
+    return permissions;
+}
+
+/**
+ * Applies permission overwrites (allow/deny) to base permissions.
+ */
+export function applyOverwritePermissions(
+    basePermissions: bigint,
+    allow: string,
+    deny: string
+): bigint {
+    let permissions = basePermissions;
+
+    // First apply deny (remove permissions)
+    permissions &= ~BigInt(deny || '0');
+
+    // Then apply allow (add permissions)
+    permissions |= BigInt(allow || '0');
+
+    return permissions;
+}
+
+/**
+ * Computes final channel permissions for a member.
+ * Order: Base permissions -> @everyone overwrites -> Role overwrites -> Member overwrites
+ */
+export function computeChannelPermissions(
+    basePermissions: bigint,
+    overwrites: ChannelOverwrite[] | undefined,
+    member: ServerMember,
+    memberRoleIds: string[]
+): bigint {
+    // If user has admin, they bypass all overwrites
+    if ((basePermissions & PERMISSIONS.ADMINISTRATOR) === PERMISSIONS.ADMINISTRATOR) {
+        return ALL_PERMISSIONS;
+    }
+
+    if (!overwrites || overwrites.length === 0) {
+        return basePermissions;
+    }
+
+    let permissions = basePermissions;
+
+    // 1. Apply @everyone overwrites (role with same ID as server)
+    const everyoneOverwrite = overwrites.find(o => o.type === 'role' && o.id === member.serverId);
+    if (everyoneOverwrite) {
+        permissions = applyOverwritePermissions(permissions, everyoneOverwrite.allow, everyoneOverwrite.deny);
+    }
+
+    // 2. Apply role-based overwrites
+    let allow = 0n;
+    let deny = 0n;
+    for (const roleId of memberRoleIds) {
+        const overwrite = overwrites.find(o => o.type === 'role' && o.id === roleId);
+        if (overwrite) {
+            allow |= BigInt(overwrite.allow || '0');
+            deny |= BigInt(overwrite.deny || '0');
+        }
+    }
+    permissions &= ~deny;
+    permissions |= allow;
+
+    // 3. Apply member-specific overwrites (highest priority)
+    const memberOverwrite = overwrites.find(o => o.type === 'member' && o.id === member.userId);
+    if (memberOverwrite) {
+        permissions = applyOverwritePermissions(permissions, memberOverwrite.allow, memberOverwrite.deny);
+    }
+
+    return permissions;
+}

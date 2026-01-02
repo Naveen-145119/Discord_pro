@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -9,10 +9,6 @@ import {
     Gift,
     Smile,
     SendHorizontal,
-    PhoneIncoming,
-    PhoneOutgoing,
-    PhoneMissed,
-    PhoneOff,
     Image,
     FileText,
     Hash,
@@ -23,8 +19,8 @@ import { useMessageStore, subscribeToMessages } from '@/stores/messageStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useDMs } from '@/hooks/useDMs';
 import { useCallContext } from '@/providers/CallProvider';
-import { formatMessageTime } from '@/lib/utils';
-import type { Message as MessageType, User, CallLogMetadata } from '@/types';
+import { MessageList, ReplyBar, TypingIndicator } from '@/components/chat';
+import type { Message as MessageType, User } from '@/types';
 import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 
 // Common emojis organized by category
@@ -72,8 +68,14 @@ export function DMPage() {
         hasMore,
         isLoading,
         isSending,
+        replyingTo,
+        typingUsers,
         fetchMessages,
         sendMessage,
+        editMessage,
+        deleteMessage,
+        setReplyingTo,
+        clearReplyingTo,
         clearMessages
     } = useMessageStore();
 
@@ -82,7 +84,7 @@ export function DMPage() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    
+
     // Picker states
     const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -124,7 +126,7 @@ export function DMPage() {
     // Handle GIF selection
     const handleGifSelect = useCallback(async (gifUrl: string) => {
         if (!channelId || !user?.$id) return;
-        
+
         try {
             // Send the GIF URL as a message
             await sendMessage(channelId, user.$id, gifUrl);
@@ -139,7 +141,7 @@ export function DMPage() {
         const file = event.target.files?.[0];
         if (file) {
             setSelectedFile(file);
-            
+
             // Create preview for images
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
@@ -214,10 +216,12 @@ export function DMPage() {
         if (!inputValue.trim() || !channelId || !user?.$id) return;
 
         const content = inputValue;
+        const replyToId = replyingTo?.$id;
         setInputValue('');
+        clearReplyingTo();
 
         try {
-            await sendMessage(channelId, user.$id, content);
+            await sendMessage(channelId, user.$id, content, replyToId);
         } catch {
             setInputValue(content);
         }
@@ -244,6 +248,32 @@ export function DMPage() {
         if (!channelId || !friend) return;
         startGlobalCall(friend.$id, channelId, type, friend);
     };
+
+    // Message action handlers
+    const handleReply = useCallback((message: MessageType) => {
+        setReplyingTo(message);
+    }, [setReplyingTo]);
+
+    const handleEdit = useCallback(async (message: MessageType) => {
+        // Edit is handled inline in MessageItem
+        const newContent = prompt('Edit message:', message.content);
+        if (newContent && newContent !== message.content) {
+            await editMessage(message.$id, newContent);
+        }
+    }, [editMessage]);
+
+    const handleDelete = useCallback(async (message: MessageType) => {
+        if (confirm('Delete this message?')) {
+            await deleteMessage(message.$id);
+        }
+    }, [deleteMessage]);
+
+    // Get typing usernames
+    const typingUsernames = useMemo(() => {
+        return Array.from(typingUsers.values())
+            .filter(u => u.expiresAt > Date.now())
+            .map(u => u.username);
+    }, [typingUsers]);
 
     const getStatusColor = (status?: string) => {
         switch (status) {
@@ -359,27 +389,30 @@ export function DMPage() {
                         </div>
                     </div>
                 ) : (
-                    <div className="py-4 space-y-4">
-                        {isLoading && (
-                            <div className="flex justify-center py-4">
-                                <div className="w-6 h-6 border-2 border-discord-primary border-t-transparent rounded-full animate-spin" />
-                            </div>
-                        )}
-
-                        {[...messages].reverse().map((message) => (
-                            <DMMessageItem
-                                key={message.$id}
-                                message={message}
-                                friend={friend}
-                                currentUserId={user?.$id || ''}
-                                onStartCall={handleStartCall}
-                            />
-                        ))}
-                    </div>
+                    <MessageList
+                        messages={messages}
+                        currentUserId={user?.$id || ''}
+                        friend={friend}
+                        onReply={handleReply}
+                        onEdit={handleEdit}
+                        onDelete={handleDelete}
+                        onStartCall={handleStartCall}
+                        isLoading={isLoading}
+                        hasMore={hasMore}
+                        onLoadMore={() => {
+                            const lastMessage = messages[messages.length - 1];
+                            if (lastMessage) {
+                                fetchMessages(channelId!, lastMessage.$id);
+                            }
+                        }}
+                    />
                 )}
             </div>
 
             <div className="px-4 pb-6 relative">
+                {/* Typing Indicator */}
+                <TypingIndicator usernames={typingUsernames} />
+
                 {/* Hidden file input */}
                 <input
                     type="file"
@@ -388,6 +421,16 @@ export function DMPage() {
                     accept="image/*,video/*,.pdf,.doc,.docx,.txt"
                     className="hidden"
                 />
+
+                {/* Reply Bar */}
+                {replyingTo && friend && (
+                    <ReplyBar
+                        message={replyingTo}
+                        friend={friend}
+                        currentUserId={user?.$id || ''}
+                        onCancel={clearReplyingTo}
+                    />
+                )}
 
                 {/* File preview */}
                 {selectedFile && (
@@ -416,7 +459,7 @@ export function DMPage() {
                     </div>
                 )}
 
-                <div className="flex items-center gap-2 bg-background-tertiary rounded-lg px-4 relative">
+                <div className={`flex items-center gap-2 bg-background-tertiary px-4 relative ${replyingTo ? 'rounded-b-lg' : 'rounded-lg'}`}>
                     {/* Attachment Menu */}
                     <div className="relative" ref={attachmentMenuRef}>
                         <button
@@ -482,11 +525,10 @@ export function DMPage() {
                                     setShowEmojiPicker(false);
                                     setShowAttachmentMenu(false);
                                 }}
-                                className={`p-1.5 rounded transition-colors ${
-                                    showGifPicker 
-                                        ? 'text-discord-primary bg-background-modifier-hover' 
-                                        : 'text-interactive-normal hover:text-interactive-hover'
-                                }`}
+                                className={`p-1.5 rounded transition-colors ${showGifPicker
+                                    ? 'text-discord-primary bg-background-modifier-hover'
+                                    : 'text-interactive-normal hover:text-interactive-hover'
+                                    }`}
                                 title="GIF"
                             >
                                 <span className="text-xs font-bold">GIF</span>
@@ -506,17 +548,16 @@ export function DMPage() {
                                             />
                                         </div>
                                     </div>
-                                    
+
                                     <div className="flex border-b border-background-tertiary overflow-x-auto">
                                         {GIF_CATEGORIES.map((cat) => (
                                             <button
                                                 key={cat}
                                                 onClick={() => setSelectedGifCategory(cat)}
-                                                className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                                                    selectedGifCategory === cat
-                                                        ? 'text-white border-b-2 border-discord-primary'
-                                                        : 'text-text-muted hover:text-text-normal'
-                                                }`}
+                                                className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${selectedGifCategory === cat
+                                                    ? 'text-white border-b-2 border-discord-primary'
+                                                    : 'text-text-muted hover:text-text-normal'
+                                                    }`}
                                             >
                                                 {cat}
                                             </button>
@@ -557,11 +598,10 @@ export function DMPage() {
                                     setShowGifPicker(false);
                                     setShowAttachmentMenu(false);
                                 }}
-                                className={`p-1.5 rounded transition-colors ${
-                                    showEmojiPicker 
-                                        ? 'text-discord-primary bg-background-modifier-hover' 
-                                        : 'text-interactive-normal hover:text-interactive-hover'
-                                }`}
+                                className={`p-1.5 rounded transition-colors ${showEmojiPicker
+                                    ? 'text-discord-primary bg-background-modifier-hover'
+                                    : 'text-interactive-normal hover:text-interactive-hover'
+                                    }`}
                                 title="Emoji"
                             >
                                 <Smile size={20} />
@@ -585,11 +625,10 @@ export function DMPage() {
                                             <button
                                                 key={cat}
                                                 onClick={() => setSelectedEmojiCategory(cat)}
-                                                className={`p-2 text-lg transition-colors ${
-                                                    selectedEmojiCategory === cat
-                                                        ? 'bg-background-modifier-hover rounded'
-                                                        : 'hover:bg-background-modifier-hover rounded'
-                                                }`}
+                                                className={`p-2 text-lg transition-colors ${selectedEmojiCategory === cat
+                                                    ? 'bg-background-modifier-hover rounded'
+                                                    : 'hover:bg-background-modifier-hover rounded'
+                                                    }`}
                                                 title={cat}
                                             >
                                                 {EMOJI_CATEGORIES[cat as keyof typeof EMOJI_CATEGORIES][0]}
@@ -631,144 +670,3 @@ export function DMPage() {
     );
 }
 
-function DMMessageItem({
-    message,
-    friend,
-    currentUserId,
-    onStartCall
-}: {
-    message: MessageType;
-    friend: User;
-    currentUserId: string;
-    onStartCall?: (type: 'voice' | 'video') => void;
-}) {
-    const isOwnMessage = message.authorId === currentUserId;
-    const displayUser = isOwnMessage ? null : friend;
-
-    // Handle call log messages
-    if (message.type === 'call') {
-        let callMetadata: CallLogMetadata | null = null;
-        try {
-            if (message.metadata) {
-                callMetadata = JSON.parse(message.metadata) as CallLogMetadata;
-            }
-        } catch {
-            // Invalid metadata
-        }
-
-        if (!callMetadata) return null;
-
-        const isOutgoing = callMetadata.callerId === currentUserId;
-        const isVideoCall = callMetadata.callType === 'video';
-        
-        // Format duration
-        const formatDuration = (seconds?: number) => {
-            if (!seconds) return '';
-            const hrs = Math.floor(seconds / 3600);
-            const mins = Math.floor((seconds % 3600) / 60);
-            const secs = seconds % 60;
-            if (hrs > 0) {
-                return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            }
-            return `${mins}:${secs.toString().padStart(2, '0')}`;
-        };
-
-        // Determine call status display
-        let CallIcon = Phone;
-        let iconColor = 'text-green-500';
-        let statusText = '';
-        let statusColor = 'text-text-muted';
-
-        switch (callMetadata.callStatus) {
-            case 'ended':
-                CallIcon = isOutgoing ? PhoneOutgoing : PhoneIncoming;
-                iconColor = 'text-green-500';
-                statusText = isOutgoing ? 'Outgoing call' : 'Incoming call';
-                if (callMetadata.duration) {
-                    statusText += ` • ${formatDuration(callMetadata.duration)}`;
-                }
-                break;
-            case 'missed':
-                CallIcon = PhoneMissed;
-                iconColor = 'text-red-500';
-                statusText = isOutgoing ? 'Call not answered' : 'Missed call';
-                statusColor = 'text-red-400';
-                break;
-            case 'declined':
-                CallIcon = PhoneOff;
-                iconColor = 'text-red-500';
-                statusText = isOutgoing ? 'Call declined' : 'You declined';
-                statusColor = 'text-red-400';
-                break;
-            default:
-                statusText = 'Call';
-        }
-
-        return (
-            <div className="message-container group">
-                <div className={`w-10 h-10 mt-0.5 flex-shrink-0 rounded-full flex items-center justify-center ${
-                    callMetadata.callStatus === 'ended' ? 'bg-green-500/20' : 'bg-red-500/20'
-                }`}>
-                    <CallIcon size={20} className={iconColor} />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-text-heading">
-                            {isVideoCall ? 'Video Call' : 'Voice Call'}
-                        </span>
-                        <span className={`text-sm ${statusColor}`}>
-                            {statusText}
-                        </span>
-                        <span className="text-xs text-text-muted">
-                            {formatMessageTime(message.$createdAt)}
-                        </span>
-                    </div>
-                    
-                    {/* Call back button */}
-                    {onStartCall && (
-                        <button
-                            onClick={() => onStartCall(callMetadata.callType)}
-                            className="mt-2 flex items-center gap-2 px-3 py-1.5 bg-background-secondary hover:bg-background-modifier-hover rounded text-sm text-text-normal transition-colors"
-                        >
-                            {isVideoCall ? <Video size={14} /> : <Phone size={14} />}
-                            Call Back
-                        </button>
-                    )}
-                </div>
-            </div>
-        );
-    }
-
-    // Regular message
-    return (
-        <div className="message-container group">
-            <div className="avatar w-10 h-10 mt-0.5 flex-shrink-0 bg-discord-primary">
-                {displayUser?.avatarUrl ? (
-                    <img src={displayUser.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                ) : (
-                    <span className="text-sm font-medium text-white">
-                        {isOwnMessage ? 'Y' : friend.displayName?.charAt(0) || '?'}
-                    </span>
-                )}
-            </div>
-
-            <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                    <span className="font-medium text-text-heading hover:underline cursor-pointer">
-                        {isOwnMessage ? 'You' : friend.displayName}
-                    </span>
-                    <span className="text-xs text-text-muted">
-                        {formatMessageTime(message.$createdAt)}
-                    </span>
-                    {message.isEdited && (
-                        <span className="text-xs text-text-muted">(edited)</span>
-                    )}
-                </div>
-                <p className="text-text-normal whitespace-pre-wrap break-words">
-                    {message.content}
-                </p>
-            </div>
-        </div>
-    );
-}

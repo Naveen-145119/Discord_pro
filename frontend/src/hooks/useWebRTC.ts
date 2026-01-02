@@ -85,6 +85,12 @@ export function useWebRTC({
     // Synchronous guard for screen sharing to prevent rapid clicks
     const isScreenSharingRef = useRef(false);
 
+    // Cinema Mode: Audio mixing refs (merges mic + system audio for screen share)
+    const audioMixerContextRef = useRef<AudioContext | null>(null);
+    const mixedAudioStreamRef = useRef<MediaStream | null>(null);
+    const micGainNodeRef = useRef<GainNode | null>(null);
+    const systemGainNodeRef = useRef<GainNode | null>(null);
+
     useEffect(() => {
         channelIdRef.current = channelId;
     }, [channelId]);
@@ -94,6 +100,75 @@ export function useWebRTC({
     }, [targetUserId]);
 
     const { subscribe: subscribeRealtime } = useRealtime();
+
+    /**
+     * Dynamic Bandwidth Management
+     * Adjusts video bitrate based on participant count and screen sharing state:
+     * - ≤2 participants: 1.5 Mbps (high quality)
+     * - >2 participants: 500 Kbps (low quality to reduce lag)
+     * - Screen sharing: 2.5 Mbps for screen, 200 Kbps for camera
+     */
+    const updateBitrateConfig = useCallback(async (
+        participantCount: number,
+        currentlyScreenSharing: boolean
+    ) => {
+        // Determine base bitrate based on participant count
+        const baseBitrate = participantCount <= 2
+            ? BITRATE_CONFIG.videoMedium  // 1.5 Mbps for small calls
+            : BITRATE_CONFIG.videoLow;     // 500 Kbps for larger calls
+
+        console.log('[WebRTC] Updating bitrate config:', {
+            participantCount,
+            currentlyScreenSharing,
+            baseBitrate: baseBitrate / 1000 + ' Kbps',
+        });
+
+        for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+            const senders = pc.getSenders();
+
+            for (const sender of senders) {
+                if (!sender.track || sender.track.kind !== 'video') continue;
+
+                try {
+                    const params = sender.getParameters();
+                    if (!params.encodings || params.encodings.length === 0) {
+                        params.encodings = [{}];
+                    }
+
+                    // Determine if this is a screen share track or camera track
+                    // Screen share tracks typically have different labels
+                    const isScreenTrack = sender.track.label?.includes('screen') ||
+                        sender.track.label?.includes('monitor') ||
+                        sender.track.label?.includes('window') ||
+                        sender.track.label?.includes('display');
+
+                    let targetBitrate: number;
+
+                    if (currentlyScreenSharing) {
+                        if (isScreenTrack) {
+                            // Screen content gets priority bandwidth
+                            targetBitrate = 2_500_000; // 2.5 Mbps for screen
+                        } else {
+                            // Camera is aggressively throttled when screen sharing
+                            targetBitrate = 200_000; // 200 Kbps for camera
+                        }
+                    } else {
+                        targetBitrate = baseBitrate;
+                    }
+
+                    params.encodings[0].maxBitrate = targetBitrate;
+                    await sender.setParameters(params);
+
+                    console.log('[WebRTC] Set bitrate for', peerId,
+                        isScreenTrack ? '(screen)' : '(camera)',
+                        '→', targetBitrate / 1000, 'Kbps');
+                } catch (err) {
+                    console.error('[WebRTC] Failed to set bitrate for sender:', err);
+                }
+            }
+        }
+    }, []);
+
 
     const sendSignal = useCallback(async (
         toUserId: string,
@@ -546,6 +621,18 @@ export function useWebRTC({
         };
     }, [activeChannelId, handleSignal, subscribeRealtime]);
 
+    // Automatically update bitrate when participant count or screen sharing changes
+    useEffect(() => {
+        // Only update if we have active connections
+        if (peerConnectionsRef.current.size === 0) return;
+        if (connectionState !== 'connected' && connectionState !== 'connecting') return;
+
+        // Participant count includes self, so add 1
+        const participantCount = participants.size + 1;
+
+        updateBitrateConfig(participantCount, isScreenSharing);
+    }, [participants.size, isScreenSharing, connectionState, updateBitrateConfig]);
+
 
     const joinChannel = useCallback(async (overrides?: { channelId?: string; targetUserId?: string; isInitiator?: boolean }) => {
         if (connectionState !== 'disconnected') return;
@@ -940,6 +1027,21 @@ export function useWebRTC({
             }
             track.stop();
         });
+
+        // Clean up Cinema Mode audio mixer
+        if (audioMixerContextRef.current) {
+            try {
+                audioMixerContextRef.current.close();
+                console.log('[WebRTC] 🎬 Cinema Mode audio mixer cleaned up');
+            } catch {
+                // Ignore errors during cleanup
+            }
+            audioMixerContextRef.current = null;
+            mixedAudioStreamRef.current = null;
+            micGainNodeRef.current = null;
+            systemGainNodeRef.current = null;
+        }
+
         setScreenStream(null);
         setIsScreenSharing(false);
         isScreenSharingRef.current = false;
@@ -965,32 +1067,112 @@ export function useWebRTC({
             // Get screen audio track if available (system audio)
             const screenAudioTrack = stream.getAudioTracks()[0];
 
+            // CINEMA MODE: Mix microphone + system audio for immersive screen sharing
+            // When both mic and system audio are available, merge them so peers hear:
+            // - Your voice commentary
+            // - The game/movie/video audio
+            let mixedAudioTrack: MediaStreamTrack | null = null;
+            const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
+
+            if (screenAudioTrack && localAudioTrack && !isMuted) {
+                try {
+                    console.log('[WebRTC] 🎬 Cinema Mode: Mixing mic + system audio');
+
+                    // Clean up previous mixer if exists
+                    if (audioMixerContextRef.current) {
+                        await audioMixerContextRef.current.close().catch(() => { });
+                    }
+
+                    // Create AudioContext for mixing
+                    const audioContext = new AudioContext();
+                    audioMixerContextRef.current = audioContext;
+
+                    // Create destination (output)
+                    const destination = audioContext.createMediaStreamDestination();
+
+                    // Create gain nodes for volume control
+                    const micGain = audioContext.createGain();
+                    const systemGain = audioContext.createGain();
+                    micGainNodeRef.current = micGain;
+                    systemGainNodeRef.current = systemGain;
+
+                    // Set initial volumes (mic slightly louder for clear voice)
+                    micGain.gain.value = 1.0;
+                    systemGain.gain.value = 0.8; // System audio slightly quieter
+
+                    // Create sources from both audio streams
+                    const micStream = new MediaStream([localAudioTrack]);
+                    const systemStream = new MediaStream([screenAudioTrack]);
+
+                    const micSource = audioContext.createMediaStreamSource(micStream);
+                    const systemSource = audioContext.createMediaStreamSource(systemStream);
+
+                    // Connect: sources -> gains -> destination
+                    micSource.connect(micGain);
+                    systemSource.connect(systemGain);
+                    micGain.connect(destination);
+                    systemGain.connect(destination);
+
+                    // Get the mixed output track
+                    mixedAudioStreamRef.current = destination.stream;
+                    mixedAudioTrack = destination.stream.getAudioTracks()[0];
+
+                    console.log('[WebRTC] 🎬 Cinema Mode audio mixer created:', {
+                        micTrack: localAudioTrack.label,
+                        systemTrack: screenAudioTrack.label,
+                        mixedTrack: mixedAudioTrack?.id?.substring(0, 8),
+                    });
+                } catch (err) {
+                    console.error('[WebRTC] Failed to create audio mixer, falling back to separate tracks:', err);
+                    mixedAudioTrack = null;
+                }
+            }
+
             // Add screen share tracks to all peer connections with renegotiation
             for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
-                // CRITICAL: First, verify the microphone audio track is present and working
-                const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
-                if (localAudioTrack && localStreamRef.current) {
-                    // Check current audio senders
+                // Handle audio track - use mixed or separate based on Cinema Mode success
+                if (mixedAudioTrack) {
+                    // Cinema Mode: Send single mixed track
+                    // First remove any existing audio senders
                     const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                    const hasMicrophoneTrack = audioSenders.some(s => s.track?.id === localAudioTrack.id);
-
-                    if (!hasMicrophoneTrack) {
-                        // Add the microphone audio track if it's missing
-                        pc.addTrack(localAudioTrack, localStreamRef.current);
-                        console.log('[WebRTC] Added missing microphone audio track before screen share:', peerId);
+                    for (const sender of audioSenders) {
+                        try {
+                            await sender.replaceTrack(mixedAudioTrack);
+                            console.log('[WebRTC] 🎬 Replaced audio with mixed track for peer:', peerId);
+                        } catch {
+                            // If replace fails, remove and add
+                            pc.removeTrack(sender);
+                            pc.addTrack(mixedAudioTrack, mixedAudioStreamRef.current!);
+                            console.log('[WebRTC] 🎬 Added mixed audio track for peer:', peerId);
+                        }
                     }
-
-                    // Ensure it's enabled (unless muted)
-                    if (!isMuted) {
-                        localAudioTrack.enabled = true;
+                    if (audioSenders.length === 0 && mixedAudioStreamRef.current) {
+                        pc.addTrack(mixedAudioTrack, mixedAudioStreamRef.current);
+                        console.log('[WebRTC] 🎬 Added mixed audio track (fresh) for peer:', peerId);
                     }
-                    console.log('[WebRTC] Microphone audio track status - enabled:', localAudioTrack.enabled, 'readyState:', localAudioTrack.readyState);
                 } else {
-                    console.warn('[WebRTC] No local audio track available during screen share!');
+                    // Fallback: Send mic and system audio as separate tracks
+                    if (localAudioTrack && localStreamRef.current) {
+                        const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+                        const hasMicrophoneTrack = audioSenders.some(s => s.track?.id === localAudioTrack.id);
+
+                        if (!hasMicrophoneTrack) {
+                            pc.addTrack(localAudioTrack, localStreamRef.current);
+                            console.log('[WebRTC] Added microphone audio track:', peerId);
+                        }
+
+                        if (!isMuted) {
+                            localAudioTrack.enabled = true;
+                        }
+                    }
+
+                    if (screenAudioTrack) {
+                        pc.addTrack(screenAudioTrack, stream);
+                        console.log('[WebRTC] Added screen audio track (system audio):', peerId);
+                    }
                 }
 
-                // Fix 3: Remove existing video senders AND null senders before adding new screen share track
-                // This prevents sender-side track accumulation when starting screen share multiple times
+                // Remove existing video senders before adding screen share
                 const allVideoSenders = pc.getSenders().filter(s => s.track?.kind === 'video' || s.track === null);
                 if (allVideoSenders.length > 0) {
                     console.log('[WebRTC] Removing', allVideoSenders.length, 'existing/null senders before screen share');
@@ -1006,14 +1188,7 @@ export function useWebRTC({
                 // Add screen video track
                 if (screenVideoTrack) {
                     pc.addTrack(screenVideoTrack, stream);
-                    console.log('[WebRTC] Added screen video track to peer connection:', peerId);
-                }
-
-                // Add screen audio track if available (system audio from screen)
-                // Note: This is separate from the microphone - it's the system/tab audio
-                if (screenAudioTrack) {
-                    pc.addTrack(screenAudioTrack, stream);
-                    console.log('[WebRTC] Added screen audio track (system audio) to peer connection:', peerId);
+                    console.log('[WebRTC] Added screen video track:', peerId);
                 }
 
                 // CRITICAL: Verify microphone audio track is still present and enabled after adding screen tracks
