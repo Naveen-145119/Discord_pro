@@ -6,7 +6,7 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { client, databases, DATABASE_ID } from '@/lib/appwrite';
+import { client, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 import {
     createPeerConnection,
     getUserMedia,
@@ -21,8 +21,8 @@ import {
 } from '@/lib/webrtc';
 import { ID } from 'appwrite';
 
-// Signals collection (add to COLLECTIONS constant)
-const SIGNALS_COLLECTION = 'webrtc_signals';
+// Use COLLECTIONS constant for consistency
+const SIGNALS_COLLECTION = COLLECTIONS.WEBRTC_SIGNALS;
 
 interface UseWebRTCProps {
     channelId: string;
@@ -270,6 +270,12 @@ export function useWebRTC({
             if (mode === 'dm' && targetUserId) {
                 // DM mode: Create targeted peer connection to the other user
                 const pc = createPeerConnection();
+
+                // Add local tracks BEFORE creating offer (critical for WebRTC)
+                stream.getTracks().forEach((track) => {
+                    pc.addTrack(track, stream);
+                });
+
                 setupPeerConnection(pc, targetUserId);
                 peerConnectionsRef.current.set(targetUserId, pc);
 
@@ -282,6 +288,12 @@ export function useWebRTC({
             } else {
                 // Channel mode: Broadcast offer to all participants
                 const pc = createPeerConnection();
+
+                // Add local tracks BEFORE creating offer (critical for WebRTC)
+                stream.getTracks().forEach((track) => {
+                    pc.addTrack(track, stream);
+                });
+
                 setupPeerConnection(pc, 'all');
 
                 const offer = await pc.createOffer();

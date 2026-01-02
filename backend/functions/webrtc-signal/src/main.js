@@ -43,29 +43,47 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Invalid field types' }, 400);
         }
 
-        // Verify channel exists and user has access
+        // Verify channel exists - can be server channel OR DM channel
         let channel;
+        let isDMCall = false;
+
         try {
             channel = await databases.getDocument(DATABASE_ID, 'channels', channelId);
+
+            // Check channel type is voice/stage for server channels
+            if (!['voice', 'stage'].includes(channel.type)) {
+                return res.json({ success: false, error: 'Channel is not a voice channel' }, 400);
+            }
+
+            // Verify user is member of the server
+            if (channel.serverId) {
+                const memberships = await databases.listDocuments(DATABASE_ID, 'server_members', [
+                    Query.equal('serverId', channel.serverId),
+                    Query.equal('userId', userId),
+                    Query.limit(1)
+                ]);
+
+                if (memberships.documents.length === 0) {
+                    return res.json({ success: false, error: 'You are not a member of this server' }, 403);
+                }
+            }
         } catch {
-            return res.json({ success: false, error: 'Channel not found' }, 404);
-        }
+            // Not a server channel - check if it's a DM channel
+            try {
+                const dmChannel = await databases.getDocument(DATABASE_ID, 'dm_channels', channelId);
+                const participants = typeof dmChannel.participantIds === 'string'
+                    ? JSON.parse(dmChannel.participantIds)
+                    : dmChannel.participantIds;
 
-        // Check channel type is voice/stage
-        if (!['voice', 'stage'].includes(channel.type)) {
-            return res.json({ success: false, error: 'Channel is not a voice channel' }, 400);
-        }
+                if (!participants.includes(userId)) {
+                    return res.json({ success: false, error: 'You are not a participant in this DM' }, 403);
+                }
 
-        // Verify user is member of the server
-        if (channel.serverId) {
-            const memberships = await databases.listDocuments(DATABASE_ID, 'server_members', [
-                Query.equal('serverId', channel.serverId),
-                Query.equal('userId', userId),
-                Query.limit(1)
-            ]);
-
-            if (memberships.documents.length === 0) {
-                return res.json({ success: false, error: 'You are not a member of this server' }, 403);
+                isDMCall = true;
+                channel = { $id: channelId, type: 'dm' };
+                log(`DM call detected for channel ${channelId}`);
+            } catch {
+                return res.json({ success: false, error: 'Channel not found' }, 404);
             }
         }
 
