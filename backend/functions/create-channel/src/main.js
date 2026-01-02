@@ -1,11 +1,6 @@
-/**
- * Create Channel - Appwrite Function
- * Creates a new channel in a server with proper validation
- */
 import { Client, Databases, ID, Query } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -23,7 +18,6 @@ export default async ({ req, res, log, error }) => {
     const ADMINISTRATOR = 1n << 0n;
 
     try {
-        // Safe JSON parsing
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -33,7 +27,6 @@ export default async ({ req, res, log, error }) => {
 
         const { serverId, userId, name, type, parentId, topic } = body;
 
-        // Validate required fields
         if (!serverId || !userId || !name || !type) {
             return res.json({
                 success: false,
@@ -41,13 +34,11 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate field types
         if (typeof serverId !== 'string' || typeof userId !== 'string' ||
             typeof name !== 'string' || typeof type !== 'string') {
             return res.json({ success: false, error: 'Invalid field types' }, 400);
         }
 
-        // Validate channel type
         const validTypes = ['text', 'voice', 'category', 'forum', 'stage'];
         if (!validTypes.includes(type)) {
             return res.json({
@@ -56,7 +47,6 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate name length
         const trimmedName = name.trim();
         if (trimmedName.length < 1 || trimmedName.length > 100) {
             return res.json({
@@ -65,12 +55,10 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate parentId if provided
         if (parentId !== undefined && parentId !== null) {
             if (typeof parentId !== 'string') {
                 return res.json({ success: false, error: 'Invalid parentId type' }, 400);
             }
-            // Verify parent category exists
             try {
                 const parent = await databases.getDocument(DATABASE_ID, 'channels', parentId);
                 if (parent.type !== 'category') {
@@ -84,7 +72,6 @@ export default async ({ req, res, log, error }) => {
             }
         }
 
-        // Check server exists
         let server;
         try {
             server = await databases.getDocument(DATABASE_ID, 'servers', serverId);
@@ -92,7 +79,6 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Server not found' }, 404);
         }
 
-        // Check user is member and has permission
         const memberships = await databases.listDocuments(DATABASE_ID, 'server_members', [
             Query.equal('serverId', serverId),
             Query.equal('userId', userId),
@@ -120,7 +106,6 @@ export default async ({ req, res, log, error }) => {
             }, 403);
         }
 
-        // Get next position atomically by using current timestamp as tiebreaker
         const existingChannels = await databases.listDocuments(DATABASE_ID, 'channels', [
             Query.equal('serverId', serverId),
             Query.orderDesc('position'),
@@ -131,7 +116,6 @@ export default async ({ req, res, log, error }) => {
             ? existingChannels.documents[0].position + 1
             : 0;
 
-        // Create channel
         const channel = await databases.createDocument(
             DATABASE_ID,
             'channels',

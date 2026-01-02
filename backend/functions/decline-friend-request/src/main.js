@@ -1,11 +1,6 @@
-/**
- * Decline Friend Request - Appwrite Function
- * Declines a pending friend request
- */
 import { Client, Databases } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -21,7 +16,6 @@ export default async ({ req, res, log, error }) => {
     const COLLECTION_FRIEND_REQUESTS = 'friend_requests';
 
     try {
-        // Parse request body
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -31,7 +25,6 @@ export default async ({ req, res, log, error }) => {
 
         const { requestId, userId } = body;
 
-        // Validate required fields
         if (!requestId || !userId) {
             return res.json({
                 success: false,
@@ -39,7 +32,6 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Get the friend request
         let friendRequest;
         try {
             friendRequest = await databases.getDocument(DATABASE_ID, COLLECTION_FRIEND_REQUESTS, requestId);
@@ -47,17 +39,14 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Friend request not found' }, 404);
         }
 
-        // Verify the user is the receiver
         if (friendRequest.receiverId !== userId) {
             return res.json({ success: false, error: 'You can only decline requests sent to you' }, 403);
         }
 
-        // Verify request is pending
         if (friendRequest.status !== 'pending') {
             return res.json({ success: false, error: 'This request has already been processed' }, 400);
         }
 
-        // Update request status to declined
         await databases.updateDocument(
             DATABASE_ID,
             COLLECTION_FRIEND_REQUESTS,

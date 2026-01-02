@@ -1,11 +1,6 @@
-/**
- * Join Server - Appwrite Function
- * Allows users to join a server via invite or public listing
- */
 import { Client, Databases, ID, Query } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -20,18 +15,17 @@ export default async ({ req, res, log, error }) => {
     const DATABASE_ID = process.env.DATABASE_ID || 'discord_db';
 
     const DEFAULT_PERMISSIONS = (
-        (1n << 1n) |  // VIEW_CHANNELS
-        (1n << 10n) | // SEND_MESSAGES
-        (1n << 16n) | // READ_MESSAGE_HISTORY
-        (1n << 13n) | // ADD_REACTIONS
-        (1n << 20n) | // CONNECT
-        (1n << 21n) | // SPEAK
-        (1n << 28n) | // STREAM
-        (1n << 32n)   // CREATE_INVITE
+        (1n << 1n) |
+        (1n << 10n) |
+        (1n << 16n) |
+        (1n << 13n) |
+        (1n << 20n) |
+        (1n << 21n) |
+        (1n << 28n) |
+        (1n << 32n)
     ).toString();
 
     try {
-        // Safe JSON parsing
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -41,7 +35,6 @@ export default async ({ req, res, log, error }) => {
 
         const { serverId, userId, inviteCode } = body;
 
-        // Validate required fields
         if (!userId || (!serverId && !inviteCode)) {
             return res.json({
                 success: false,
@@ -49,7 +42,6 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate field types
         if (typeof userId !== 'string') {
             return res.json({ success: false, error: 'Invalid userId type' }, 400);
         }
@@ -62,7 +54,6 @@ export default async ({ req, res, log, error }) => {
 
         let targetServerId = serverId;
 
-        // If invite code provided, validate and get server
         if (inviteCode) {
             let invite;
             try {
@@ -71,19 +62,16 @@ export default async ({ req, res, log, error }) => {
                 return res.json({ success: false, error: 'Invalid invite code' }, 404);
             }
 
-            // Check if expired
             if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
                 return res.json({ success: false, error: 'Invite has expired' }, 400);
             }
 
-            // Check max uses
             if (invite.maxUses && invite.uses >= invite.maxUses) {
                 return res.json({ success: false, error: 'Invite has reached maximum uses' }, 400);
             }
 
             targetServerId = invite.serverId;
 
-            // Atomically increment invite uses using current value check
             try {
                 await databases.updateDocument(DATABASE_ID, 'invites', inviteCode, {
                     uses: invite.uses + 1
@@ -93,7 +81,6 @@ export default async ({ req, res, log, error }) => {
             }
         }
 
-        // Check if server exists and is joinable
         let server;
         try {
             server = await databases.getDocument(DATABASE_ID, 'servers', targetServerId);
@@ -101,12 +88,10 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Server not found' }, 404);
         }
 
-        // If no invite provided, check if server is public
         if (!inviteCode && !server.isPublic) {
             return res.json({ success: false, error: 'Server is private. An invite is required.' }, 403);
         }
 
-        // Check if already a member (prevent duplicates)
         const existingMembership = await databases.listDocuments(DATABASE_ID, 'server_members', [
             Query.equal('serverId', targetServerId),
             Query.equal('userId', userId),
@@ -117,7 +102,6 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Already a member of this server' }, 400);
         }
 
-        // Create membership with unique constraint protection
         let membership;
         try {
             membership = await databases.createDocument(
@@ -140,7 +124,6 @@ export default async ({ req, res, log, error }) => {
             throw createErr;
         }
 
-        // Update member count (non-critical, log errors but don't fail)
         try {
             const freshServer = await databases.getDocument(DATABASE_ID, 'servers', targetServerId);
             await databases.updateDocument(DATABASE_ID, 'servers', targetServerId, {
@@ -150,7 +133,6 @@ export default async ({ req, res, log, error }) => {
             log(`Member count update failed: ${countErr.message}`);
         }
 
-        // Create join message (non-critical)
         if (server.defaultChannelId) {
             try {
                 await databases.createDocument(

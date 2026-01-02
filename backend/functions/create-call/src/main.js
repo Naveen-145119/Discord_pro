@@ -1,7 +1,6 @@
 import { Client, Databases, ID, Permission, Role } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // 1. Initialize Appwrite Client
     const client = new Client()
         .setEndpoint('https://fra.cloud.appwrite.io/v1')
         .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
@@ -12,7 +11,6 @@ export default async ({ req, res, log, error }) => {
     const COLLECTION_ID = 'active_calls';
 
     try {
-        // 2. Parse User and Input
         const callerId = req.headers['x-appwrite-user-id'];
         if (!callerId) {
             return res.json({ success: false, error: 'Unauthorized' }, 401);
@@ -25,8 +23,6 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Missing required fields' }, 400);
         }
 
-        // 3. Create Call Document with Permissions
-        // We use the Server SDK (admin key) so we can set any permissions we want.
         const call = await databases.createDocument(
             DATABASE_ID,
             COLLECTION_ID,

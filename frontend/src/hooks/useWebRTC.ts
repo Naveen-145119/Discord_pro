@@ -160,6 +160,17 @@ export function useWebRTC({
                 readyState: track.readyState,
             });
 
+            // Monitor track state changes
+            track.onended = () => {
+                console.log('[WebRTC] Remote track ENDED:', track.kind, 'from peer:', peerId);
+            };
+            track.onmute = () => {
+                console.log('[WebRTC] Remote track MUTED:', track.kind, 'from peer:', peerId);
+            };
+            track.onunmute = () => {
+                console.log('[WebRTC] Remote track UNMUTED:', track.kind, 'from peer:', peerId);
+            };
+
             if (!stream) {
                 console.warn('[WebRTC] ontrack: No stream in event!');
                 return;
@@ -283,6 +294,9 @@ export function useWebRTC({
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
                     console.log('[WebRTC] Local description (answer) set');
+
+                    // Mark connection as established BEFORE sending answer to prevent duplicate answers
+                    establishedConnectionsRef.current.add(peerId);
 
                     await sendSignal(peerId, 'answer', {
                         sdp: answer.sdp,
@@ -416,6 +430,19 @@ export function useWebRTC({
                 `enabled:${audioTrack.enabled} muted:${audioTrack.muted} readyState:${audioTrack.readyState}` : 
                 'NO AUDIO TRACK!');
 
+            // Monitor local audio track state
+            if (audioTrack) {
+                audioTrack.onended = () => {
+                    console.log('[WebRTC] ⚠️ Local audio track ENDED unexpectedly');
+                };
+                audioTrack.onmute = () => {
+                    console.log('[WebRTC] Local audio track muted');
+                };
+                audioTrack.onunmute = () => {
+                    console.log('[WebRTC] Local audio track unmuted');
+                };
+            }
+
             await functions.createExecution('webrtc-signal', JSON.stringify({
                 action: 'join',
                 channelId: effectiveChannelId,
@@ -512,6 +539,8 @@ export function useWebRTC({
             return;
         }
 
+        console.log('[WebRTC] leaveChannel called, stopping local tracks');
+
         functions.createExecution('webrtc-signal', JSON.stringify({
             action: 'leave',
             channelId: channelIdRef.current,
@@ -519,7 +548,10 @@ export function useWebRTC({
             data: {}
         }), false).catch(() => { });
 
-        localStreamRef.current?.getTracks().forEach((track) => track.stop());
+        localStreamRef.current?.getTracks().forEach((track) => {
+            console.log('[WebRTC] Stopping local track:', track.kind, 'id:', track.id);
+            track.stop();
+        });
         localStreamRef.current = null;
         setLocalStream(null);
 

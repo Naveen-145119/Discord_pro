@@ -129,22 +129,35 @@ export function useCall(): UseCallReturn {
     const answerCall = useCallback(async () => {
         if (!incomingCall) return;
 
+        // Store these values before clearing incomingCall
+        const callToAnswer = incomingCall;
+        const answerTargetUserId = incomingCall.callerId;
+        const answerChannelId = incomingCall.channelId;
+
         try {
+            // Update call status first
             await databases.updateDocument(
                 DATABASE_ID,
                 COLLECTIONS.ACTIVE_CALLS,
-                incomingCall.$id,
+                callToAnswer.$id,
                 { status: 'answered' }
             );
 
+            // Set current call BEFORE clearing incoming call to avoid race condition
             setCurrentCall({
-                ...incomingCall,
+                ...callToAnswer,
                 status: 'answered'
             });
+            
+            // Clear incoming call after setting current call
             setIncomingCall(null);
 
-            const answerTargetUserId = incomingCall.callerId;
-            await webRTC.joinChannel({ channelId: incomingCall.channelId, targetUserId: answerTargetUserId, isInitiator: false });
+            // Join WebRTC with stored values (not dependent on state)
+            await webRTC.joinChannel({ 
+                channelId: answerChannelId, 
+                targetUserId: answerTargetUserId, 
+                isInitiator: false 
+            });
         } catch (err) {
             console.error('Failed to answer call:', err);
             throw err;

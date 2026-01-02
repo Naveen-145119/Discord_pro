@@ -1,11 +1,6 @@
-/**
- * WebRTC Signaling - Appwrite Function
- * Manages voice states and WebRTC signaling for peer connections
- */
 import { Client, Databases, ID, Query, Permission, Role } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -20,7 +15,6 @@ export default async ({ req, res, log, error }) => {
     const DATABASE_ID = process.env.DATABASE_ID || 'discord_db';
 
     try {
-        // Safe JSON parsing
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -30,7 +24,6 @@ export default async ({ req, res, log, error }) => {
 
         const { action, channelId, userId, data } = body;
 
-        // Validate required fields
         if (!action || !channelId || !userId) {
             return res.json({
                 success: false,
@@ -38,24 +31,20 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate field types
         if (typeof action !== 'string' || typeof channelId !== 'string' || typeof userId !== 'string') {
             return res.json({ success: false, error: 'Invalid field types' }, 400);
         }
 
-        // Verify channel exists - can be server channel OR DM channel
         let channel;
         let isDMCall = false;
 
         try {
             channel = await databases.getDocument(DATABASE_ID, 'channels', channelId);
 
-            // Check channel type is voice/stage for server channels
             if (!['voice', 'stage'].includes(channel.type)) {
                 return res.json({ success: false, error: 'Channel is not a voice channel' }, 400);
             }
 
-            // Verify user is member of the server
             if (channel.serverId) {
                 const memberships = await databases.listDocuments(DATABASE_ID, 'server_members', [
                     Query.equal('serverId', channel.serverId),
@@ -68,7 +57,6 @@ export default async ({ req, res, log, error }) => {
                 }
             }
         } catch {
-            // Not a server channel - check if it's a DM channel
             try {
                 const dmChannel = await databases.getDocument(DATABASE_ID, 'dm_channels', channelId);
                 const participants = typeof dmChannel.participantIds === 'string'
@@ -89,7 +77,6 @@ export default async ({ req, res, log, error }) => {
 
         switch (action) {
             case 'join': {
-                // Check if already in this channel (prevent duplicates)
                 const existing = await databases.listDocuments(DATABASE_ID, 'voice_states', [
                     Query.equal('channelId', channelId),
                     Query.equal('userId', userId),
@@ -100,7 +87,6 @@ export default async ({ req, res, log, error }) => {
                     return res.json({ success: true, data: existing.documents[0] });
                 }
 
-                // Leave any other voice channel first
                 const otherStates = await databases.listDocuments(DATABASE_ID, 'voice_states', [
                     Query.equal('userId', userId),
                     Query.limit(10)
@@ -114,7 +100,6 @@ export default async ({ req, res, log, error }) => {
                     }
                 }
 
-                // Create new voice state
                 const voiceState = await databases.createDocument(
                     DATABASE_ID,
                     'voice_states',
@@ -163,7 +148,6 @@ export default async ({ req, res, log, error }) => {
                     return res.json({ success: false, error: 'Voice state not found' }, 404);
                 }
 
-                // Safely extract update data with type checking
                 const updateData = {};
                 if (data && typeof data === 'object') {
                     if (typeof data.isSelfMuted === 'boolean') updateData.isSelfMuted = data.isSelfMuted;
@@ -199,8 +183,6 @@ export default async ({ req, res, log, error }) => {
                     return res.json({ success: false, error: 'Missing targetUserId' }, 400);
                 }
 
-                // Create signaling document with proper permissions
-                // Both sender and receiver need to read for Realtime to work
                 const signal = await databases.createDocument(
                     DATABASE_ID,
                     'webrtc_signals',

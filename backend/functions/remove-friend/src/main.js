@@ -1,11 +1,6 @@
-/**
- * Remove Friend - Appwrite Function
- * Removes an existing friendship between two users
- */
 import { Client, Databases, Query } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -21,7 +16,6 @@ export default async ({ req, res, log, error }) => {
     const COLLECTION_FRIENDS = 'friends';
 
     try {
-        // Parse request body
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -31,7 +25,6 @@ export default async ({ req, res, log, error }) => {
 
         const { userId, friendId } = body;
 
-        // Validate required fields
         if (!userId || !friendId) {
             return res.json({
                 success: false,
@@ -39,7 +32,6 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Find the friendship (order userIds for consistent lookup)
         const [userId1, userId2] = [userId, friendId].sort();
         const friendships = await databases.listDocuments(DATABASE_ID, COLLECTION_FRIENDS, [
             Query.equal('userId1', userId1),
@@ -53,7 +45,6 @@ export default async ({ req, res, log, error }) => {
 
         const friendship = friendships.documents[0];
 
-        // Delete the friendship
         await databases.deleteDocument(DATABASE_ID, COLLECTION_FRIENDS, friendship.$id);
 
         log(`Friendship removed: ${userId} <-> ${friendId}`);
