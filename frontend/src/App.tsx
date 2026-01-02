@@ -7,6 +7,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 
 // Providers
 import { CallProvider } from '@/providers/CallProvider';
+import { RealtimeProvider } from '@/providers/RealtimeProvider';
 
 // Pages
 import { LoginPage } from '@/pages/auth/LoginPage';
@@ -94,9 +95,11 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <CallProvider>
-                <MainLayout />
-              </CallProvider>
+              <RealtimeProvider>
+                <CallProvider>
+                  <MainLayout />
+                </CallProvider>
+              </RealtimeProvider>
             </ProtectedRoute>
           }
         >

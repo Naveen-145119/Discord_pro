@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { databases, functions, client, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { databases, functions, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 import { Query } from 'appwrite';
 import type { User, DMChannel } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
+import { useRealtime } from '@/providers/RealtimeProvider';
 
 interface DMChannelWithFriend extends DMChannel {
     friend: User;
@@ -143,40 +144,30 @@ export function useDMs(): UseDMsReturn {
         await fetchDMs();
     }, [fetchDMs]);
 
-    // Subscribe to realtime updates
+    // Subscribe to realtime updates via centralized provider
+    const { subscribe } = useRealtime();
+
     useEffect(() => {
         if (!user?.$id) return;
 
-        // Delay subscription to prevent WebSocket connection conflicts
-        const timeoutId = setTimeout(() => {
-            // Subscribe to DM channel updates
-            const unsubscribe = client.subscribe(
-                `databases.${DATABASE_ID}.collections.${COLLECTIONS.DM_CHANNELS}.documents`,
-                (response) => {
-                    const event = response.events[0];
-                    const document = response.payload as unknown as DMChannel;
+        // Listen to DM channel events from centralized subscription
+        const unsubscribe = subscribe((event) => {
+            if (event.collection !== COLLECTIONS.DM_CHANNELS) return;
 
-                    // Only process if user is a participant
-                    if (!document.participantIds?.includes(user.$id)) return;
+            const document = event.payload as DMChannel;
 
-                    if (event.includes('.create') || event.includes('.update')) {
-                        // Refresh to get updated data with friend info
-                        fetchDMs();
-                    } else if (event.includes('.delete')) {
-                        setDmChannels(prev => prev.filter(dm => dm.$id !== document.$id));
-                    }
-                }
-            );
+            // Only process if user is a participant
+            if (!document.participantIds?.includes(user.$id)) return;
 
-            // Store unsubscribe for cleanup
-            (window as unknown as Record<string, () => void>).__dmUnsubscribe = unsubscribe;
-        }, 500);
+            if (event.event.includes('.create') || event.event.includes('.update')) {
+                fetchDMs();
+            } else if (event.event.includes('.delete')) {
+                setDmChannels(prev => prev.filter(dm => dm.$id !== document.$id));
+            }
+        });
 
-        return () => {
-            clearTimeout(timeoutId);
-            (window as unknown as Record<string, () => void>).__dmUnsubscribe?.();
-        };
-    }, [user?.$id, fetchDMs]);
+        return unsubscribe;
+    }, [user?.$id, fetchDMs, subscribe]);
 
     // Initial load
     useEffect(() => {
