@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom scrollbar styling for Discord-like appearance */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -27,13 +26,11 @@
   border-radius: 4px;
 }
 
-/* Firefox scrollbar */
 * {
   scrollbar-width: thin;
   scrollbar-color: #1a1b1e #2b2d31;
 }
 
-/* Base styles */
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -48,19 +45,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Disable text selection on UI elements */
 .no-select {
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Custom focus ring for accessibility */
 .focus-ring:focus-visible {
   outline: 2px solid #5865F2;
   outline-offset: 2px;
 }
 
-/* Discord-like button styles */
 @layer components {
   .btn-primary {
     @apply bg-discord-primary text-white font-medium py-2 px-4 rounded-md 
@@ -89,7 +83,6 @@ body {
            transition-colors duration-150;
   }
   
-  /* Input styles */
   .input-field {
     @apply bg-background-tertiary text-text-normal 
            border-none rounded-md px-3 py-2 
@@ -97,7 +90,6 @@ body {
            focus:outline-none focus:ring-2 focus:ring-discord-primary;
   }
   
-  /* Channel item styles */
   .channel-item {
     @apply flex items-center gap-2 px-2 py-1.5 rounded-md 
            text-channel-text cursor-pointer 
@@ -109,7 +101,6 @@ body {
     @apply bg-background-modifier-active text-interactive-active;
   }
   
-  /* Server icon styles */
   .server-icon {
     @apply w-12 h-12 rounded-[24px] bg-background-primary 
            flex items-center justify-center cursor-pointer 
@@ -121,19 +112,16 @@ body {
     @apply rounded-[16px] bg-discord-primary;
   }
   
-  /* Message styles */
   .message-container {
     @apply flex gap-4 px-4 py-0.5 
            hover:bg-background-modifier-hover;
   }
   
-  /* Avatar styles */
   .avatar {
     @apply rounded-full bg-background-secondary 
            flex items-center justify-center overflow-hidden;
   }
   
-  /* Tooltip */
   .tooltip {
     @apply absolute z-50 px-3 py-2 text-sm font-medium 
            bg-background-floating text-text-normal 

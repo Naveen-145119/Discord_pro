@@ -1,11 +1,6 @@
-/**
- * Create Server - Appwrite Function
- * Creates a new server with default channel, @everyone role, and owner as admin
- */
 import { Client, Databases, ID } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -19,23 +14,20 @@ export default async ({ req, res, log, error }) => {
     const databases = new Databases(client);
     const DATABASE_ID = process.env.DATABASE_ID || 'discord_db';
 
-    // Default permissions for @everyone role
     const DEFAULT_PERMISSIONS = (
-        (1n << 1n) |  // VIEW_CHANNELS
-        (1n << 10n) | // SEND_MESSAGES
-        (1n << 16n) | // READ_MESSAGE_HISTORY
-        (1n << 13n) | // ADD_REACTIONS
-        (1n << 20n) | // CONNECT
-        (1n << 21n) | // SPEAK
-        (1n << 28n) | // STREAM
-        (1n << 32n)   // CREATE_INVITE
+        (1n << 1n) |
+        (1n << 10n) |
+        (1n << 16n) |
+        (1n << 13n) |
+        (1n << 20n) |
+        (1n << 21n) |
+        (1n << 28n) |
+        (1n << 32n)
     ).toString();
 
-    // Owner gets ADMINISTRATOR permission
-    const OWNER_PERMISSIONS = (1n << 0n).toString(); // ADMINISTRATOR bit
+    const OWNER_PERMISSIONS = (1n << 0n).toString();
 
     try {
-        // Safe JSON parsing
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -45,7 +37,6 @@ export default async ({ req, res, log, error }) => {
 
         const { name, ownerId, description, isPublic } = body;
 
-        // Validate required fields
         if (!name || !ownerId) {
             return res.json({
                 success: false,
@@ -53,12 +44,10 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate field types
         if (typeof name !== 'string' || typeof ownerId !== 'string') {
             return res.json({ success: false, error: 'Invalid field types' }, 400);
         }
 
-        // Validate name length
         const trimmedName = name.trim();
         if (trimmedName.length < 2 || trimmedName.length > 100) {
             return res.json({
@@ -67,7 +56,6 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Create server
         const server = await databases.createDocument(
             DATABASE_ID,
             'servers',
@@ -87,7 +75,6 @@ export default async ({ req, res, log, error }) => {
 
         log(`Server created: ${server.$id} by ${ownerId}`);
 
-        // Create @everyone role
         await databases.createDocument(
             DATABASE_ID,
             'roles',
@@ -103,7 +90,6 @@ export default async ({ req, res, log, error }) => {
             }
         );
 
-        // Create default #general text channel
         const generalChannel = await databases.createDocument(
             DATABASE_ID,
             'channels',
@@ -121,7 +107,6 @@ export default async ({ req, res, log, error }) => {
             }
         );
 
-        // Update server with default channel
         await databases.updateDocument(
             DATABASE_ID,
             'servers',
@@ -129,7 +114,6 @@ export default async ({ req, res, log, error }) => {
             { defaultChannelId: generalChannel.$id }
         );
 
-        // Add owner as first member WITH ADMINISTRATOR permissions
         await databases.createDocument(
             DATABASE_ID,
             'server_members',
@@ -140,11 +124,10 @@ export default async ({ req, res, log, error }) => {
                 nickname: null,
                 roleIds: JSON.stringify([]),
                 joinedAt: new Date().toISOString(),
-                permissionBits: OWNER_PERMISSIONS // Owner gets admin, not default
+                permissionBits: OWNER_PERMISSIONS
             }
         );
 
-        // Create system message
         await databases.createDocument(
             DATABASE_ID,
             'messages',

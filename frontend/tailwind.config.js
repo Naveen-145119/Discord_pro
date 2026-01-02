@@ -1,12 +1,10 @@
-/** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
-        // Discord color palette
         discord: {
-          primary: '#5865F2',    // Blurple
+          primary: '#5865F2',
           green: '#57F287',
           yellow: '#FEE75C',
           fuchsia: '#EB459E',
@@ -17,7 +15,6 @@ export default {
           blurple: '#5865F2',
           'full-white': '#FFFFFF',
         },
-        // App backgrounds
         background: {
           primary: '#313338',
           secondary: '#2B2D31',
@@ -29,7 +26,6 @@ export default {
             selected: 'rgba(79, 84, 92, 0.32)',
           },
         },
-        // Text colors
         text: {
           normal: '#DBDEE1',
           muted: '#949BA4',
@@ -39,19 +35,16 @@ export default {
           warning: '#FEE75C',
           danger: '#ED4245',
         },
-        // Interactive elements
         interactive: {
           normal: '#B5BAC1',
           hover: '#DBDEE1',
           active: '#FFFFFF',
           muted: '#4E5058',
         },
-        // Channel colors
         channel: {
           icon: '#80848E',
           text: '#949BA4',
         },
-        // Status colors
         status: {
           online: '#23A55A',
           idle: '#F0B232',

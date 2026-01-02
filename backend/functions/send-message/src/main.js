@@ -1,11 +1,6 @@
-/**
- * Send Message - Appwrite Function
- * Validates and stores messages with realtime triggers
- */
 import { Client, Databases, ID, Query } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
-    // Validate environment variables
     if (!process.env.APPWRITE_ENDPOINT || !process.env.APPWRITE_PROJECT_ID || !process.env.APPWRITE_API_KEY) {
         error('Missing required environment variables');
         return res.json({ success: false, error: 'Server configuration error' }, 500);
@@ -23,7 +18,6 @@ export default async ({ req, res, log, error }) => {
     const COLLECTION_MEMBERS = 'server_members';
 
     try {
-        // Parse request body safely
         let body;
         try {
             body = JSON.parse(req.body || '{}');
@@ -33,7 +27,6 @@ export default async ({ req, res, log, error }) => {
 
         const { channelId, authorId, content, replyToId } = body;
 
-        // Validate required fields
         if (!channelId || !authorId || !content) {
             return res.json({
                 success: false,
@@ -41,12 +34,10 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
-        // Validate field types
         if (typeof channelId !== 'string' || typeof authorId !== 'string' || typeof content !== 'string') {
             return res.json({ success: false, error: 'Invalid field types' }, 400);
         }
 
-        // Trim content first, then validate length
         const trimmedContent = content.trim();
         if (trimmedContent.length === 0) {
             return res.json({ success: false, error: 'Message content cannot be empty' }, 400);
@@ -55,7 +46,6 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Message content exceeds 4000 characters' }, 400);
         }
 
-        // Verify channel exists
         let channel;
         try {
             channel = await databases.getDocument(DATABASE_ID, COLLECTION_CHANNELS, channelId);
@@ -63,7 +53,6 @@ export default async ({ req, res, log, error }) => {
             return res.json({ success: false, error: 'Channel not found' }, 404);
         }
 
-        // If server channel, verify user is a member using Query objects (NOT string interpolation)
         if (channel.serverId) {
             const members = await databases.listDocuments(DATABASE_ID, COLLECTION_MEMBERS, [
                 Query.equal('serverId', channel.serverId),
@@ -79,7 +68,6 @@ export default async ({ req, res, log, error }) => {
             }
         }
 
-        // Create the message
         const message = await databases.createDocument(
             DATABASE_ID,
             COLLECTION_MESSAGES,

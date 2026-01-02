@@ -1,7 +1,3 @@
-/**
- * Cleanup Expired - Appwrite Function (Scheduled)
- * Runs every 5 minutes to clean up expired data
- */
 import { Client, Databases, Query } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
@@ -22,7 +18,6 @@ export default async ({ req, res, log, error }) => {
     try {
         const now = new Date().toISOString();
 
-        // Clean expired invites
         try {
             const expiredInvites = await databases.listDocuments(DATABASE_ID, 'invites', [
                 Query.lessThan('expiresAt', now),
@@ -37,7 +32,6 @@ export default async ({ req, res, log, error }) => {
             log(`Invites cleanup skipped: ${err.message}`);
         }
 
-        // Clean expired typing states (older than 10 seconds)
         try {
             const typingStates = await databases.listDocuments(DATABASE_ID, 'typing_states', [
                 Query.lessThan('expiresAt', now),
@@ -52,7 +46,6 @@ export default async ({ req, res, log, error }) => {
             log(`Typing states cleanup skipped: ${err.message}`);
         }
 
-        // Clean stale voice states (no activity for 1 hour)
         try {
             const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
             const staleVoiceStates = await databases.listDocuments(DATABASE_ID, 'voice_states', [
