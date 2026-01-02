@@ -135,8 +135,9 @@ export function useCall(): UseCallReturn {
                 }
             }, 30000);
 
-            // Join WebRTC channel
-            await webRTC.joinChannel();
+            // Join WebRTC channel - PASS VALUES DIRECTLY since React hasn't re-rendered yet
+            const callTargetUserId = friendId; // The person we're calling
+            await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId });
         } catch (err) {
             console.error('Failed to start call:', err);
             throw err;
@@ -163,8 +164,9 @@ export function useCall(): UseCallReturn {
             });
             setIncomingCall(null);
 
-            // Join WebRTC channel
-            await webRTC.joinChannel();
+            // Join WebRTC channel - PASS VALUES since incomingCall has correct data
+            const answerTargetUserId = incomingCall.callerId; // The person who called us
+            await webRTC.joinChannel({ channelId: incomingCall.channelId, targetUserId: answerTargetUserId });
         } catch (err) {
             console.error('Failed to answer call:', err);
             throw err;
