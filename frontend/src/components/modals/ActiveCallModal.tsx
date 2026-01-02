@@ -32,7 +32,7 @@ interface ActiveCallModalProps {
 }
 
 export function ActiveCallModal({
-    call,
+    call: _call,
     friend,
     isMuted,
     isVideoOn,
@@ -58,7 +58,7 @@ export function ActiveCallModal({
     const [showVolumeSlider, setShowVolumeSlider] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
-    const [connectionQuality, setConnectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
+    const [connectionQuality, _setConnectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
     const [isMinimized, setIsMinimized] = useState(false);
 
     // Call duration timer
