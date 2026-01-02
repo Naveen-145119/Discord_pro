@@ -365,6 +365,14 @@ export function ActiveCallModal({
     };
 
     const hasRemoteVideo = remoteStream?.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
+    
+    // Detect if remote video is likely a screen share (check video track settings)
+    const isRemoteScreenShare = hasRemoteVideo && remoteStream?.getVideoTracks().some(t => {
+        const settings = t.getSettings();
+        // Screen shares typically have larger dimensions and different display surface
+        return (settings.width && settings.width >= 1280) || 
+               (settings.displaySurface === 'monitor' || settings.displaySurface === 'window');
+    });
 
     // Minimized view (Picture-in-Picture style)
     if (isMinimized) {
@@ -455,7 +463,7 @@ export function ActiveCallModal({
             )}
 
             {/* Top Bar */}
-            <div className="p-4 flex items-center justify-between bg-[#2b2d31]">
+            <div className="p-4 flex items-center justify-between bg-[#2b2d31] z-20">
                 <div className="flex items-center gap-3">
                     <div className="relative">
                         <div className="w-10 h-10 rounded-full bg-discord-primary flex items-center justify-center overflow-hidden">
@@ -545,15 +553,33 @@ export function ActiveCallModal({
                 </div>
             </div>
 
-            {/* Main Video Area */}
-            <div className="flex-1 relative flex items-center justify-center bg-[#1e1f22] p-4">
+            {/* Main Video Area - Takes full remaining space with padding for controls */}
+            <div className="flex-1 relative flex items-center justify-center bg-[#1e1f22] p-4 pb-24 overflow-hidden">
                 {hasRemoteVideo ? (
-                    <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className="max-w-full max-h-full rounded-lg object-contain"
-                    />
+                    <div className="relative w-full h-full flex items-center justify-center">
+                        {/* Screen share indicator banner */}
+                        {isRemoteScreenShare && (
+                            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-4 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm shadow-lg">
+                                <MonitorUp size={16} />
+                                {friend.displayName} is sharing their screen
+                            </div>
+                        )}
+                        <video
+                            ref={remoteVideoRef}
+                            autoPlay
+                            playsInline
+                            className={`rounded-lg ${
+                                isRemoteScreenShare 
+                                    ? 'w-full h-full object-contain' 
+                                    : 'max-w-full max-h-full object-contain'
+                            }`}
+                            style={{
+                                // For screen share, fill the container while maintaining aspect ratio
+                                maxHeight: isRemoteScreenShare ? '100%' : undefined,
+                                maxWidth: isRemoteScreenShare ? '100%' : undefined,
+                            }}
+                        />
+                    </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center">
                         <div className="w-32 h-32 rounded-full bg-[#5865f2] flex items-center justify-center mb-4 ring-4 ring-[#5865f2]/30">
@@ -605,55 +631,57 @@ export function ActiveCallModal({
                 )}
             </div>
 
-            {/* Control Bar */}
-            <div className="p-4 bg-[#2b2d31] flex items-center justify-center gap-3">
-                {/* Mute */}
-                <button
-                    onClick={onToggleMute}
-                    className={`p-4 rounded-full transition-all hover:scale-105 ${
-                        isMuted
-                            ? 'bg-red-500 text-white hover:bg-red-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                    }`}
-                    title={isMuted ? 'Unmute' : 'Mute'}
-                >
-                    {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-                </button>
+            {/* Control Bar - Always visible, floating at bottom */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1e1f22] via-[#1e1f22]/95 to-transparent">
+                <div className="flex items-center justify-center gap-3">
+                    {/* Mute */}
+                    <button
+                        onClick={onToggleMute}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${
+                            isMuted
+                                ? 'bg-red-500 text-white hover:bg-red-600'
+                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                        }`}
+                        title={isMuted ? 'Unmute' : 'Mute'}
+                    >
+                        {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                    </button>
 
-                {/* Video */}
-                <button
-                    onClick={onToggleVideo}
-                    className={`p-4 rounded-full transition-all hover:scale-105 ${
-                        !isVideoOn
-                            ? 'bg-red-500 text-white hover:bg-red-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                    }`}
-                    title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
-                >
-                    {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
-                </button>
+                    {/* Video */}
+                    <button
+                        onClick={onToggleVideo}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${
+                            !isVideoOn
+                                ? 'bg-red-500 text-white hover:bg-red-600'
+                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                        }`}
+                        title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
+                    >
+                        {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
+                    </button>
 
-                {/* Screen Share */}
-                <button
-                    onClick={onToggleScreenShare}
-                    className={`p-4 rounded-full transition-all hover:scale-105 ${
-                        isScreenSharing
-                            ? 'bg-green-500 text-white hover:bg-green-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                    }`}
-                    title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
-                >
-                    <MonitorUp size={22} />
-                </button>
+                    {/* Screen Share */}
+                    <button
+                        onClick={onToggleScreenShare}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${
+                            isScreenSharing
+                                ? 'bg-green-500 text-white hover:bg-green-600'
+                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                        }`}
+                        title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
+                    >
+                        <MonitorUp size={22} />
+                    </button>
 
-                {/* End Call */}
-                <button
-                    onClick={onEndCall}
-                    className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105"
-                    title="End Call"
-                >
-                    <Phone size={22} className="rotate-[135deg]" />
-                </button>
+                    {/* End Call */}
+                    <button
+                        onClick={onEndCall}
+                        className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105 shadow-lg"
+                        title="End Call"
+                    >
+                        <Phone size={22} className="rotate-[135deg]" />
+                    </button>
+                </div>
             </div>
         </div>
     );
