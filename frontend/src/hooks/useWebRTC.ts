@@ -754,17 +754,45 @@ export function useWebRTC({
         try {
             const stream = await getDisplayMedia();
             setScreenStream(stream);
-            console.log('[WebRTC] Screen share stream obtained');
+            console.log('[WebRTC] Screen share stream obtained, tracks:', stream.getTracks().map(t => `${t.kind}:${t.label}`).join(', '));
+
+            // Get the screen video track
+            const screenVideoTrack = stream.getVideoTracks()[0];
+            // Get screen audio track if available (system audio)
+            const screenAudioTrack = stream.getAudioTracks()[0];
 
             // Add screen share tracks to all peer connections with renegotiation
             for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
-                stream.getTracks().forEach((track) => {
-                    const existingSender = pc.getSenders().find(s => s.track === track);
-                    if (!existingSender) {
-                        pc.addTrack(track, stream);
-                        console.log('[WebRTC] Added screen track to peer connection:', peerId);
+                // Add screen video track
+                if (screenVideoTrack) {
+                    pc.addTrack(screenVideoTrack, stream);
+                    console.log('[WebRTC] Added screen video track to peer connection:', peerId);
+                }
+
+                // Add screen audio track if available (system audio from screen)
+                if (screenAudioTrack) {
+                    pc.addTrack(screenAudioTrack, stream);
+                    console.log('[WebRTC] Added screen audio track to peer connection:', peerId);
+                }
+
+                // IMPORTANT: Ensure microphone audio track is still being sent
+                // The local stream's audio track should already be added, but let's verify
+                const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
+                if (localAudioTrack) {
+                    const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+                    const hasLocalAudio = audioSenders.some(s => s.track?.id === localAudioTrack.id);
+                    if (!hasLocalAudio && localStreamRef.current) {
+                        // Re-add the local audio track if it's missing
+                        pc.addTrack(localAudioTrack, localStreamRef.current);
+                        console.log('[WebRTC] Re-added local microphone audio track to peer connection:', peerId);
+                    } else {
+                        console.log('[WebRTC] Local microphone audio track already present, enabled:', localAudioTrack.enabled);
                     }
-                });
+                    // Make sure it's enabled (not muted)
+                    if (!isMuted) {
+                        localAudioTrack.enabled = true;
+                    }
+                }
 
                 await setVideoBitrate(pc, BITRATE_CONFIG.screenShare);
                 
@@ -779,17 +807,20 @@ export function useWebRTC({
                 }
             }
 
-            stream.getVideoTracks()[0].onended = () => {
-                console.log('[WebRTC] Screen share ended by user');
-                stopScreenShare();
-            };
+            // Handle screen share stop event
+            if (screenVideoTrack) {
+                screenVideoTrack.onended = () => {
+                    console.log('[WebRTC] Screen share ended by user');
+                    stopScreenShare();
+                };
+            }
 
             setIsScreenSharing(true);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to share screen';
             setError(message);
         }
-    }, [isScreenSharing, stopScreenShare, sendSignal]);
+    }, [isScreenSharing, isMuted, stopScreenShare, sendSignal]);
 
     useEffect(() => {
         return () => {

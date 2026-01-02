@@ -54,13 +54,18 @@ export function ScreenShareViewer({
     return (
         <div
             ref={containerRef}
-            className="relative w-full h-full bg-black rounded-lg overflow-hidden group"
+            className="relative w-full h-full bg-black rounded-lg overflow-hidden group flex items-center justify-center"
         >
             <video
                 ref={videoRef}
                 autoPlay
                 playsInline
-                className="w-full h-full object-contain"
+                muted={isSelf} // Mute self to avoid echo
+                className="max-w-full max-h-full w-auto h-auto object-contain"
+                style={{ 
+                    // Ensure the video maintains aspect ratio and fits within container
+                    objectFit: 'contain',
+                }}
             />
 
             <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
@@ -96,7 +101,7 @@ export function ScreenShareViewer({
 
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="flex items-center justify-between text-xs text-white/70">
-                    <span>1080p @ 60fps</span>
+                    <span>Full Screen Capture</span>
                     <span>High Quality</span>
                 </div>
             </div>

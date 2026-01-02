@@ -64,12 +64,20 @@ export const VIDEO_CONSTRAINTS: MediaStreamConstraints = {
 
 export const SCREEN_SHARE_CONSTRAINTS: DisplayMediaStreamOptions = {
     video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 60, max: 60 },
+        displaySurface: 'monitor',
+        frameRate: { ideal: 30, max: 60 },
+        // Don't set fixed width/height - let it capture the full screen resolution
     },
-    audio: true,
-};
+    audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+    },
+    // Prefer entire screen capture
+    selfBrowserSurface: 'exclude',
+    surfaceSwitching: 'include',
+    systemAudio: 'include',
+} as DisplayMediaStreamOptions;
 
 export const BITRATE_CONFIG = {
     audio: 128_000,
