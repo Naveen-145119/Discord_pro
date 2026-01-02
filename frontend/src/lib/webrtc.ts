@@ -116,6 +116,11 @@ export interface CallParticipant {
     isVideoOn: boolean;
     isScreenSharing: boolean;
     isSpeaking: boolean;
+    /** Camera stream - separate from screen share */
+    cameraStream?: MediaStream;
+    /** Screen share stream - creates additional card */
+    screenStream?: MediaStream;
+    /** @deprecated Use cameraStream instead. Kept for backward compatibility. */
     stream?: MediaStream;
 }
 

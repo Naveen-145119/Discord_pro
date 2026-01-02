@@ -27,6 +27,7 @@ interface UseWebRTCProps {
 interface UseWebRTCReturn {
     connectionState: ConnectionState;
     localStream: MediaStream | null;
+    screenStream: MediaStream | null;
     participants: Map<string, CallParticipant>;
     isMuted: boolean;
     isDeafened: boolean;
@@ -80,6 +81,9 @@ export function useWebRTC({
 
     // Track if we've sent an offer to each peer (to handle glare)
     const sentOffersRef = useRef<Set<string>>(new Set());
+
+    // Synchronous guard for screen sharing to prevent rapid clicks
+    const isScreenSharingRef = useRef(false);
 
     useEffect(() => {
         channelIdRef.current = channelId;
@@ -938,15 +942,22 @@ export function useWebRTC({
         });
         setScreenStream(null);
         setIsScreenSharing(false);
+        isScreenSharingRef.current = false;
         console.log('[WebRTC] Screen share stopped successfully');
     }, [screenStream, isMuted, sendSignal]);
 
     const startScreenShare = useCallback(async () => {
-        if (isScreenSharing) return;
+        // CRITICAL: Use synchronous ref guard to prevent rapid clicks
+        if (isScreenSharing || isScreenSharingRef.current) {
+            console.log('[WebRTC] Screen share already in progress, ignoring');
+            return;
+        }
+        isScreenSharingRef.current = true;
 
         try {
             const stream = await getDisplayMedia();
             setScreenStream(stream);
+            setIsScreenSharing(true);
             console.log('[WebRTC] Screen share stream obtained, tracks:', stream.getTracks().map(t => `${t.kind}:${t.label}`).join(', '));
 
             // Get the screen video track
@@ -978,13 +989,17 @@ export function useWebRTC({
                     console.warn('[WebRTC] No local audio track available during screen share!');
                 }
 
-                // Fix 3: Remove existing video senders before adding new screen share track
+                // Fix 3: Remove existing video senders AND null senders before adding new screen share track
                 // This prevents sender-side track accumulation when starting screen share multiple times
-                const existingVideoSenders = pc.getSenders().filter(s => s.track?.kind === 'video');
-                if (existingVideoSenders.length > 0) {
-                    console.log('[WebRTC] Removing', existingVideoSenders.length, 'existing video senders before screen share');
-                    existingVideoSenders.forEach(sender => {
-                        pc.removeTrack(sender);
+                const allVideoSenders = pc.getSenders().filter(s => s.track?.kind === 'video' || s.track === null);
+                if (allVideoSenders.length > 0) {
+                    console.log('[WebRTC] Removing', allVideoSenders.length, 'existing/null senders before screen share');
+                    allVideoSenders.forEach(sender => {
+                        try {
+                            pc.removeTrack(sender);
+                        } catch (e) {
+                            console.warn('[WebRTC] Failed to remove sender:', e);
+                        }
                     });
                 }
 
@@ -1094,6 +1109,7 @@ export function useWebRTC({
     return {
         connectionState,
         localStream,
+        screenStream,
         participants,
         isMuted,
         isDeafened,

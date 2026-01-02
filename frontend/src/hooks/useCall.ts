@@ -32,8 +32,10 @@ interface UseCallReturn {
     isScreenSharing: boolean;
     isSpeaking: boolean;
     localStream: MediaStream | null;
+    screenStream: MediaStream | null;
     remoteStream: MediaStream | null;
     remoteStreamVersion: number;
+    participants: Map<string, CallParticipant>;
     remoteParticipant: CallParticipant | null;
     startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
     answerCall: () => Promise<void>;
@@ -454,8 +456,10 @@ export function useCall(): UseCallReturn {
         isScreenSharing: webRTC.isScreenSharing,
         isSpeaking: webRTC.isSpeaking,
         localStream: webRTC.localStream,
+        screenStream: webRTC.screenStream,
         remoteStream,
         remoteStreamVersion,
+        participants: webRTC.participants,
         remoteParticipant,
         startCall,
         answerCall,

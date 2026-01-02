@@ -80,8 +80,10 @@ export function CallProvider({ children }: CallProviderProps) {
                     isScreenSharing={call.isScreenSharing}
                     isSpeaking={call.isSpeaking}
                     localStream={call.localStream}
+                    screenStream={call.screenStream}
                     remoteStream={call.remoteStream}
                     remoteStreamVersion={call.remoteStreamVersion}
+                    participants={call.participants}
                     remoteParticipant={call.remoteParticipant}
                     isCalling={call.isCalling}
                     onEndCall={call.endCall}

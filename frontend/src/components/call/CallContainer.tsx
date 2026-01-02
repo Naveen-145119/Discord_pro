@@ -59,13 +59,13 @@ export function CallContainer({
             });
         }
 
-        // Remote screen shares
+        // Remote screen shares - use screenStream
         participants.forEach(p => {
-            if (p.isScreenSharing && p.stream) {
+            if (p.isScreenSharing && p.screenStream) {
                 shares.push({
                     odId: `${p.odId}-screen`,
                     displayName: `${p.displayName}'s screen`,
-                    stream: p.stream,
+                    stream: p.screenStream,
                 });
             }
         });
@@ -95,7 +95,8 @@ export function CallContainer({
             isVideoOn: isLocalVideoOn,
             isScreenSharing: isLocalScreenSharing,
             isSpeaking: isLocalSpeaking,
-            stream: localStream ?? undefined,
+            cameraStream: localStream ?? undefined,
+            stream: localStream ?? undefined, // backward compat
         };
         return [local, ...participants];
     }, [localDisplayName, localAvatarUrl, isLocalMuted, isLocalVideoOn, isLocalSpeaking, isLocalScreenSharing, localStream, participants]);

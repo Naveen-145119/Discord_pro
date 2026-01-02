@@ -1,7 +1,6 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
     Phone,
-    PhoneOff,
     Video,
     MonitorUp,
     Mic,
@@ -19,7 +18,7 @@ import {
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
-import { ScreenShareCard, ParticipantCard } from '@/components/call';
+import { CallContainer } from '@/components/call';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
@@ -30,8 +29,10 @@ interface ActiveCallModalProps {
     isScreenSharing: boolean;
     isSpeaking: boolean;
     localStream: MediaStream | null;
+    screenStream: MediaStream | null;
     remoteStream: MediaStream | null;
     remoteStreamVersion: number;
+    participants: Map<string, CallParticipant>;
     remoteParticipant: CallParticipant | null;
     isCalling: boolean;
     onEndCall: () => void;
@@ -50,9 +51,11 @@ export function ActiveCallModal({
     isScreenSharing,
     isSpeaking,
     localStream,
+    screenStream,
     remoteStream,
     remoteStreamVersion,
-    remoteParticipant,
+    participants,
+    remoteParticipant: _remoteParticipant,
     isCalling,
     onEndCall,
     onToggleMute,
@@ -78,6 +81,9 @@ export function ActiveCallModal({
     const [callDuration, setCallDuration] = useState(0);
     const [connectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
     const [isMinimized, setIsMinimized] = useState(false);
+
+    // Convert participants Map to Array for CallContainer
+    const participantsArray = useMemo(() => Array.from(participants.values()), [participants]);
 
     // Call duration timer
     useEffect(() => {
@@ -449,9 +455,6 @@ export function ActiveCallModal({
 
     const hasRemoteVideo = remoteStream?.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
 
-    // Check for local video (camera is on and has live tracks)
-    const hasLocalVideo = isVideoOn && localStream?.getVideoTracks().some(t => t.readyState === 'live');
-
     // Detect if remote video is likely a screen share (check video track settings)
     const isRemoteScreenShare = hasRemoteVideo && remoteStream?.getVideoTracks().some(t => {
         const settings = t.getSettings();
@@ -643,102 +646,18 @@ export function ActiveCallModal({
             {/* Main Video Area - Takes full remaining space with padding for controls */}
             <div className={`flex-1 relative flex items-center justify-center bg-[#1e1f22] overflow-hidden ${isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4 pb-24'
                 }`}>
-                {hasRemoteVideo ? (
-                    <div className="relative w-full h-full flex items-center justify-center">
-                        {isRemoteScreenShare ? (
-                            /* USE NEW ScreenShareCard COMPONENT */
-                            <ScreenShareCard
-                                key={`remote-screen-${remoteStream?.id}`}
-                                stream={remoteStream!}
-                                sharerName={friend.displayName || 'Unknown'}
-                                sharerId={friend.$id || 'remote'}
-                                isFocused={isFullscreen}
-                            />
-                        ) : (
-                            /* USE NEW ParticipantCard COMPONENT for remote camera */
-                            <ParticipantCard
-                                key={`remote-video-${remoteStream?.id}`}
-                                odId={friend.$id || 'remote'}
-                                displayName={friend.displayName || 'Unknown'}
-                                stream={remoteStream}
-                                isMuted={remoteParticipant?.isMuted ?? false}
-                                isVideoOn={remoteParticipant?.isVideoOn ?? true}
-                                isSpeaking={remoteParticipant?.isSpeaking ?? false}
-                                avatarUrl={friend.avatarUrl || undefined}
-                                size="focused"
-                                isFocused
-                            />
-                        )}
-                        {/* Fullscreen controls overlay - show on hover in fullscreen */}
-                        {isFullscreen && (
-                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 z-20">
-                                <div className="flex items-center justify-center gap-4">
-                                    <button
-                                        onClick={onToggleMute}
-                                        className={`p-3 rounded-full ${isMuted ? 'bg-red-500' : 'bg-gray-700'} text-white hover:opacity-80 transition-opacity`}
-                                        title={isMuted ? 'Unmute' : 'Mute'}
-                                    >
-                                        {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                                    </button>
-                                    <button
-                                        onClick={toggleFullscreen}
-                                        className="p-3 rounded-full bg-gray-700 text-white hover:opacity-80 transition-opacity"
-                                        title="Exit Fullscreen"
-                                    >
-                                        <Minimize2 size={20} />
-                                    </button>
-                                    <button
-                                        onClick={onEndCall}
-                                        className="p-3 rounded-full bg-red-500 text-white hover:opacity-80 transition-opacity"
-                                        title="End Call"
-                                    >
-                                        <PhoneOff size={20} />
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center">
-                        <div className="w-32 h-32 rounded-full bg-[#5865f2] flex items-center justify-center mb-4 ring-4 ring-[#5865f2]/30">
-                            {friend.avatarUrl ? (
-                                <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                                <span className="text-5xl font-bold text-white">
-                                    {friend.displayName?.charAt(0) || '?'}
-                                </span>
-                            )}
-                        </div>
-                        <h2 className="text-2xl font-bold text-white mb-2">{friend.displayName}</h2>
-                        {isCalling ? (
-                            <p className="text-gray-400 animate-pulse">Calling...</p>
-                        ) : remoteStream ? (
-                            <p className="text-green-400 flex items-center gap-2">
-                                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                                Voice Connected
-                            </p>
-                        ) : (
-                            <p className="text-yellow-400 animate-pulse">Connecting...</p>
-                        )}
-                    </div>
-                )}
-
-                {/* Local Video Preview - USE NEW ParticipantCard COMPONENT */}
-                {localStream && hasLocalVideo && (
-                    <div className="absolute bottom-24 right-4 z-10">
-                        <ParticipantCard
-                            key={`local-video-${localStream.id}`}
-                            odId="local"
-                            displayName="You"
-                            stream={localStream}
-                            isMuted={isMuted}
-                            isVideoOn={isVideoOn}
-                            isSpeaking={isSpeaking}
-                            isLocal
-                            size="thumbnail"
-                        />
-                    </div>
-                )}
+                {/* Use CallContainer for multi-participant grid layout */}
+                <CallContainer
+                    localStream={localStream}
+                    localDisplayName="You"
+                    isLocalMuted={isMuted}
+                    isLocalVideoOn={isVideoOn}
+                    isLocalSpeaking={isSpeaking}
+                    isLocalScreenSharing={isScreenSharing}
+                    localScreenStream={screenStream}
+                    participants={participantsArray}
+                    onStopScreenShare={onToggleScreenShare}
+                />
 
                 {/* Screen Share Indicator */}
                 {isScreenSharing && (

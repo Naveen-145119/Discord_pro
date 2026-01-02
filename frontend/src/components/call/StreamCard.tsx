@@ -45,7 +45,7 @@ export function StreamCard({
     avatarUrl,
 }: StreamCardProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
-    const audioRef = useRef<HTMLAudioElement>(null);
+    // Audio is handled by ActiveCallModal, not here
     const [isHovered, setIsHovered] = useState(false);
 
     // Compute whether we have live video
@@ -75,20 +75,8 @@ export function StreamCard({
         };
     }, [stream, hasLiveVideo, displayName]);
 
-    // Audio element management (for remote streams only)
-    useEffect(() => {
-        const audioElement = audioRef.current;
-        if (!audioElement || !stream || isLocal) return;
-
-        audioElement.srcObject = stream;
-        audioElement.play().catch(err => {
-            console.log('[StreamCard] Audio play blocked:', displayName, err);
-        });
-
-        return () => {
-            audioElement.srcObject = null;
-        };
-    }, [stream, isLocal, displayName]);
+    // NOTE: Audio playback is handled by ActiveCallModal, not StreamCard
+    // This prevents duplicate audio and allows centralized volume control
 
     // Size-based styling
     const sizeClasses = {
@@ -119,10 +107,7 @@ export function StreamCard({
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            {/* Hidden audio element for remote participants */}
-            {!isLocal && stream && (
-                <audio ref={audioRef} autoPlay playsInline className="hidden" />
-            )}
+            {/* Audio is handled by ActiveCallModal, not individual cards */}
 
             {/* Video layer - only rendered when we have live video */}
             {hasLiveVideo ? (
