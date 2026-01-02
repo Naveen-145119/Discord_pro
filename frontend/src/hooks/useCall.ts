@@ -55,6 +55,8 @@ export function useCall(): UseCallReturn {
 
     // WebRTC hook - only initialize when in a call
     // Calculate target user ID - use incomingCall when answering (before currentCall is set)
+    // CRITICAL: These values are used for initial hook setup, but actual values 
+    // are passed directly via overrides in startCall/answerCall to avoid stale closures
     const targetUserId = useMemo(() => {
         const call = currentCall || incomingCall;
         if (!call) return '';
@@ -62,6 +64,8 @@ export function useCall(): UseCallReturn {
     }, [currentCall, incomingCall, user?.$id]);
 
     // Determine if this user is the call initiator (caller sends offer, receiver waits)
+    // CRITICAL: Caller (who creates the call) is ALWAYS initiator
+    // This is passed as override to joinChannel to avoid stale closure issues
     const isInitiator = useMemo(() => {
         const call = currentCall || incomingCall;
         if (!call) return true; // Default to true
@@ -136,8 +140,9 @@ export function useCall(): UseCallReturn {
             }, 30000);
 
             // Join WebRTC channel - PASS VALUES DIRECTLY since React hasn't re-rendered yet
+            // CRITICAL: Pass isInitiator=true since WE are starting the call (we're the caller)
             const callTargetUserId = friendId; // The person we're calling
-            await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId });
+            await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId, isInitiator: true });
         } catch (err) {
             console.error('Failed to start call:', err);
             throw err;
@@ -165,8 +170,9 @@ export function useCall(): UseCallReturn {
             setIncomingCall(null);
 
             // Join WebRTC channel - PASS VALUES since incomingCall has correct data
+            // CRITICAL: Pass isInitiator=false since WE are answering (they called us, we wait for offer)
             const answerTargetUserId = incomingCall.callerId; // The person who called us
-            await webRTC.joinChannel({ channelId: incomingCall.channelId, targetUserId: answerTargetUserId });
+            await webRTC.joinChannel({ channelId: incomingCall.channelId, targetUserId: answerTargetUserId, isInitiator: false });
         } catch (err) {
             console.error('Failed to answer call:', err);
             throw err;
@@ -256,11 +262,13 @@ export function useCall(): UseCallReturn {
                     clearTimeout(callTimeoutRef.current);
                     callTimeoutRef.current = null;
                 }
-                setCurrentCall(prev => ({
-                    ...prev,
-                    ...call,
-                    status: 'answered'
-                }));
+                // CRITICAL FIX: Null-safe spread - if prev is null, use call as base
+                setCurrentCall(prev => {
+                    if (!prev) {
+                        return { ...call, status: 'answered' };
+                    }
+                    return { ...prev, ...call, status: 'answered' };
+                });
             }
 
             // Call ended or declined
@@ -280,14 +288,26 @@ export function useCall(): UseCallReturn {
     }, [user?.$id, currentCall?.$id, incomingCall?.$id, webRTC, subscribe]);
 
     // Handle remote streams from WebRTC
+    // CRITICAL FIX: Use participants.size to trigger when Map changes
+    // Also serialize participant IDs to detect new participants
+    const participantsSize = webRTC.participants.size;
+    const participantIds = Array.from(webRTC.participants.keys()).join(',');
+    
     useEffect(() => {
-        if (webRTC.participants.size > 0) {
-            const firstParticipant = Array.from(webRTC.participants.values())[0];
-            if (firstParticipant?.stream) {
-                setRemoteStream(firstParticipant.stream);
+        const participantsArray = Array.from(webRTC.participants.values());
+        
+        if (participantsArray.length > 0) {
+            // Find the first participant with a valid stream
+            const participantWithStream = participantsArray.find(p => p.stream);
+            if (participantWithStream?.stream) {
+                // Only update if stream actually changed to prevent infinite loops
+                if (remoteStream !== participantWithStream.stream) {
+                    console.log('[useCall] Setting remote stream from participant:', participantWithStream.odId);
+                    setRemoteStream(participantWithStream.stream);
+                }
             }
         }
-    }, [webRTC.participants]);
+    }, [participantsSize, participantIds, webRTC.participants, remoteStream]);
 
     // Cleanup on unmount
     useEffect(() => {

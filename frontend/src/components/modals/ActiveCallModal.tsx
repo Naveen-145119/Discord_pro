@@ -1,7 +1,10 @@
 /**
  * Active Call Modal - Full screen call UI when in a call
+ * 
+ * CRITICAL: This modal handles both voice and video calls.
+ * Audio MUST play regardless of video state!
  */
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { Phone, Video, MonitorUp, Mic, MicOff, VideoOff } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
@@ -37,6 +40,9 @@ export function ActiveCallModal({
 }: ActiveCallModalProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    // CRITICAL FIX: Separate audio element ref for voice-only calls
+    const remoteAudioRef = useRef<HTMLAudioElement>(null);
+    const [audioPlaybackFailed, setAudioPlaybackFailed] = useState(false);
 
     // Attach local stream to video element
     useEffect(() => {
@@ -45,16 +51,43 @@ export function ActiveCallModal({
         }
     }, [localStream]);
 
-    // Attach remote stream to video element
+    // CRITICAL FIX: Always attach remote stream to BOTH audio and video elements
+    // This ensures audio plays even when video element is hidden
     useEffect(() => {
-        if (remoteVideoRef.current && remoteStream) {
+        if (!remoteStream) return;
+
+        // Attach to hidden audio element (ALWAYS plays audio)
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.play().catch((err) => {
+                console.error('Failed to play remote audio:', err);
+                setAudioPlaybackFailed(true);
+            });
+        }
+
+        // Attach to video element (for video/screenshare display)
+        if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = remoteStream;
-            // CRITICAL: Explicit play() call needed for audio due to browser autoplay policies
             remoteVideoRef.current.play().catch((err) => {
-                console.error('Failed to play remote stream:', err);
+                console.error('Failed to play remote video:', err);
             });
         }
     }, [remoteStream]);
+
+    // Manual play handler for when autoplay is blocked
+    const handleManualPlay = async () => {
+        try {
+            if (remoteAudioRef.current) {
+                await remoteAudioRef.current.play();
+            }
+            if (remoteVideoRef.current) {
+                await remoteVideoRef.current.play();
+            }
+            setAudioPlaybackFailed(false);
+        } catch (err) {
+            console.error('Manual play failed:', err);
+        }
+    };
 
     const getStatusColor = (status?: string) => {
         switch (status) {
@@ -67,6 +100,27 @@ export function ActiveCallModal({
 
     return (
         <div className="fixed inset-0 bg-black/90 flex flex-col z-[100]">
+            {/* CRITICAL: Hidden audio element that ALWAYS plays remote audio */}
+            {/* This ensures audio works even when video element is conditionally hidden */}
+            <audio
+                ref={remoteAudioRef}
+                autoPlay
+                playsInline
+                className="hidden"
+            />
+
+            {/* Autoplay blocked warning */}
+            {audioPlaybackFailed && remoteStream && (
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50">
+                    <button
+                        onClick={handleManualPlay}
+                        className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium animate-pulse"
+                    >
+                        🔊 Click to Enable Audio
+                    </button>
+                </div>
+            )}
+
             {/* Header */}
             <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -94,11 +148,14 @@ export function ActiveCallModal({
             {/* Main video area */}
             <div className="flex-1 relative flex items-center justify-center">
                 {/* Remote video or avatar */}
-                {remoteStream && (call.callType === 'video' || isScreenSharing) ? (
+                {/* CRITICAL FIX: Safely check for video tracks with null guards */}
+                {remoteStream && (remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks().some(t => t.enabled && t.readyState === 'live')) ? (
                     <video
                         ref={remoteVideoRef}
                         autoPlay
                         playsInline
+                        // CRITICAL: Do NOT mute - audio is handled by hidden audio element as backup
+                        // but video element should also play audio for better sync
                         className="w-full h-full object-contain"
                     />
                 ) : (
@@ -113,8 +170,15 @@ export function ActiveCallModal({
                             )}
                         </div>
                         <h2 className="text-2xl font-bold text-white mb-2">{friend.displayName}</h2>
-                        {isCalling && (
+                        {isCalling ? (
                             <p className="text-gray-400 animate-pulse">Calling...</p>
+                        ) : remoteStream ? (
+                            <p className="text-green-400 flex items-center gap-2">
+                                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                                Voice Connected
+                            </p>
+                        ) : (
+                            <p className="text-yellow-400 animate-pulse">Connecting...</p>
                         )}
                     </div>
                 )}
