@@ -46,10 +46,21 @@ export function CallProvider({ children }: CallProviderProps) {
     }, [call.currentCall]);
 
     // Get friend for current call (either we called them or they called us)
+    // CRITICAL FIX: When WE initiated call, friend is receiver
+    // When WE received call, friend is caller
     const getCurrentFriend = (): User | null => {
+        // If we set friend when starting call, use that
         if (callFriend) return callFriend;
+        
+        // Otherwise determine from call data
+        // call.currentCall.caller is populated when we RECEIVE a call (they called us)
+        // call.currentCall.receiver would be populated when we MAKE a call (we called them)
         if (call.currentCall?.caller) return call.currentCall.caller;
         if (call.currentCall?.receiver) return call.currentCall.receiver;
+        
+        // For incoming calls, caller data is available
+        if (call.incomingCall?.caller) return call.incomingCall.caller;
+        
         return null;
     };
 

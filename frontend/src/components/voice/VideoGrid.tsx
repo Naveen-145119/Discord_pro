@@ -78,6 +78,8 @@ function VideoTile({
     isSelf?: boolean;
 }) {
     const videoRef = useRef<HTMLVideoElement>(null);
+    // CRITICAL FIX: Separate audio element for when video is hidden
+    const audioRef = useRef<HTMLAudioElement>(null);
 
     // Update video element when stream changes
     useEffect(() => {
@@ -86,10 +88,30 @@ function VideoTile({
         }
     }, [stream]);
 
+    // CRITICAL FIX: Always play audio through hidden audio element for remote participants
+    useEffect(() => {
+        if (audioRef.current && stream && !isSelf) {
+            audioRef.current.srcObject = stream;
+            audioRef.current.play().catch((err) => {
+                console.error('Failed to play audio for', displayName, err);
+            });
+        }
+    }, [stream, isSelf, displayName]);
+
     const hasVideo = stream?.getVideoTracks().some(t => t.enabled);
 
     return (
         <div className="relative rounded-lg overflow-hidden bg-background-secondary aspect-video">
+            {/* CRITICAL: Hidden audio element ensures audio plays even when video is not shown */}
+            {!isSelf && stream && (
+                <audio
+                    ref={audioRef}
+                    autoPlay
+                    playsInline
+                    className="hidden"
+                />
+            )}
+
             {hasVideo ? (
                 <video
                     ref={videoRef}
