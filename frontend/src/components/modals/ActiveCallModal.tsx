@@ -48,8 +48,11 @@ export function ActiveCallModal({
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
+    // For Chrome WebRTC audio bug workaround - need a muted element
+    const hiddenAudioRef = useRef<HTMLAudioElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const gainNodeRef = useRef<GainNode | null>(null);
+    const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const callStartTimeRef = useRef<number | null>(null);
     
@@ -58,7 +61,7 @@ export function ActiveCallModal({
     const [showVolumeSlider, setShowVolumeSlider] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
-    const [connectionQuality, _setConnectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
+    const [connectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
     const [isMinimized, setIsMinimized] = useState(false);
 
     // Call duration timer
@@ -90,68 +93,123 @@ export function ActiveCallModal({
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    // Setup audio with Web Audio API for volume control and boost
-    // Uses the audio element as source for reliable playback
-    const setupAudioWithGain = useCallback(async (stream: MediaStream, audioElement: HTMLAudioElement) => {
-        try {
-            // First, set up the audio element for playback
-            audioElement.srcObject = stream;
-            audioElement.volume = 1.0; // We'll control volume via gain node
-            audioElement.muted = false;
-            
-            // Try to play
-            try {
-                await audioElement.play();
-                console.log('[ActiveCallModal] Audio element playing');
-            } catch (playErr) {
-                console.error('[ActiveCallModal] Audio autoplay blocked:', playErr);
-                setAudioPlaybackFailed(true);
-                return;
+    // Track if audio context has been set up for current stream
+    const audioSetupForStreamRef = useRef<string | null>(null);
+
+    /**
+     * FIXED: WebRTC Audio with Volume Control
+     * 
+     * Chrome has a bug where WebRTC remote streams need special handling:
+     * 1. Attach stream to a MUTED audio element (workaround for Chrome bug)
+     * 2. Use createMediaStreamSource (NOT createMediaElementSource) 
+     * 3. Route through GainNode for volume control
+     * 4. Connect to AudioContext.destination for playback
+     * 
+     * This approach gives us:
+     * - Working audio in Chrome
+     * - Volume control (0-200%)
+     * - Audio level monitoring
+     */
+    const setupAudioWithGain = useCallback(async (stream: MediaStream, initialVolume: number) => {
+        // Create unique ID for this stream
+        const streamId = stream.id + stream.getAudioTracks().map(t => t.id).join('');
+        
+        // Skip if already set up for this exact stream
+        if (audioSetupForStreamRef.current === streamId && audioContextRef.current) {
+            console.log('[ActiveCallModal] Audio already set up for this stream, updating volume only');
+            if (gainNodeRef.current) {
+                gainNodeRef.current.gain.value = initialVolume / 100;
             }
-            
+            return;
+        }
+
+        console.log('[ActiveCallModal] Setting up audio for stream:', streamId.substring(0, 20));
+
+        try {
             // Cleanup previous audio context
             if (audioContextRef.current) {
-                await audioContextRef.current.close();
+                try {
+                    sourceNodeRef.current?.disconnect();
+                    gainNodeRef.current?.disconnect();
+                    await audioContextRef.current.close();
+                } catch (e) {
+                    console.log('[ActiveCallModal] Error cleaning up previous audio context:', e);
+                }
+                audioContextRef.current = null;
+                gainNodeRef.current = null;
+                sourceNodeRef.current = null;
             }
-            
+
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                console.warn('[ActiveCallModal] No audio tracks in stream');
+                return;
+            }
+
+            // CHROME WORKAROUND: Attach stream to a MUTED audio element
+            // This "activates" the stream in Chrome without playing it directly
+            const hiddenAudio = hiddenAudioRef.current;
+            if (hiddenAudio) {
+                hiddenAudio.srcObject = stream;
+                hiddenAudio.muted = true;
+                try {
+                    await hiddenAudio.play();
+                    console.log('[ActiveCallModal] Hidden muted audio element playing (Chrome workaround)');
+                } catch (e) {
+                    console.log('[ActiveCallModal] Hidden audio play failed (may be fine):', e);
+                }
+            }
+
+            // Create AudioContext for volume control
             const audioContext = new AudioContext();
             audioContextRef.current = audioContext;
             
             // Resume context if suspended (autoplay policy)
             if (audioContext.state === 'suspended') {
                 await audioContext.resume();
+                console.log('[ActiveCallModal] AudioContext resumed');
             }
+            
+            // Create source from the MediaStream directly (NOT from an element)
+            // We create a new stream with just the audio track for cleaner handling
+            const audioOnlyStream = new MediaStream(audioTracks);
+            const source = audioContext.createMediaStreamSource(audioOnlyStream);
+            sourceNodeRef.current = source;
             
             // Create gain node for volume control (allows boost beyond 100%)
             const gainNode = audioContext.createGain();
             gainNodeRef.current = gainNode;
-            gainNode.gain.value = volume / 100;
-            
-            // Create source from the AUDIO ELEMENT (not the stream directly)
-            // This is more reliable for playback
-            const source = audioContext.createMediaElementSource(audioElement);
+            gainNode.gain.value = initialVolume / 100;
             
             // Connect: source -> gain -> destination (speakers)
             source.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            console.log('[ActiveCallModal] Audio setup with gain control via element, volume:', volume);
+            audioSetupForStreamRef.current = streamId;
+            
+            console.log('[ActiveCallModal] ✅ Audio pipeline set up: MediaStreamSource -> GainNode -> Destination');
+            console.log('[ActiveCallModal] Initial volume:', initialVolume, '% (gain:', gainNode.gain.value, ')');
             
             setAudioPlaybackFailed(false);
             
-            // Monitor audio levels
+            // Monitor audio levels to verify audio is flowing
             const analyser = audioContext.createAnalyser();
             analyser.fftSize = 256;
-            gainNode.connect(analyser); // Connect after gain to see amplified levels
+            source.connect(analyser); // Also connect source to analyser (parallel)
             
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
             let checkCount = 0;
             const checkInterval = setInterval(() => {
+                if (audioContext.state === 'closed') {
+                    clearInterval(checkInterval);
+                    return;
+                }
                 analyser.getByteFrequencyData(dataArray);
                 const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-                console.log('[ActiveCallModal] Audio level:', average.toFixed(2));
+                const peak = Math.max(...dataArray);
+                console.log('[ActiveCallModal] Audio level - avg:', average.toFixed(2), 'peak:', peak, 'gain:', gainNode.gain.value.toFixed(2));
                 checkCount++;
-                if (checkCount >= 5) {
+                if (checkCount >= 10) {
                     clearInterval(checkInterval);
                 }
             }, 1000);
@@ -165,10 +223,12 @@ export function ActiveCallModal({
 
     // Update gain when volume changes
     useEffect(() => {
-        if (gainNodeRef.current && audioContextRef.current) {
-            // Apply volume with smooth transition
-            gainNodeRef.current.gain.setTargetAtTime(volume / 100, audioContextRef.current.currentTime, 0.1);
-            console.log('[ActiveCallModal] Volume updated to:', volume);
+        if (gainNodeRef.current && audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            // Apply volume with smooth transition to avoid clicks
+            const currentTime = audioContextRef.current.currentTime;
+            gainNodeRef.current.gain.cancelScheduledValues(currentTime);
+            gainNodeRef.current.gain.setTargetAtTime(volume / 100, currentTime, 0.05);
+            console.log('[ActiveCallModal] Volume changed to:', volume, '% (gain target:', (volume / 100).toFixed(2), ')');
         }
     }, [volume]);
 
@@ -186,8 +246,11 @@ export function ActiveCallModal({
         }
 
         const audioTracks = remoteStream.getAudioTracks();
-        console.log('[ActiveCallModal] Remote stream received, tracks:',
-            remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
+        const videoTracks = remoteStream.getVideoTracks();
+        console.log('[ActiveCallModal] Remote stream received:',
+            'audio:', audioTracks.length,
+            'video:', videoTracks.length,
+            'tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
 
         if (audioTracks.length > 0) {
             const track = audioTracks[0];
@@ -196,6 +259,7 @@ export function ActiveCallModal({
                 enabled: track.enabled,
                 muted: track.muted,
                 readyState: track.readyState,
+                label: track.label,
             });
 
             // Ensure track is enabled
@@ -204,17 +268,18 @@ export function ActiveCallModal({
                 track.enabled = true;
             }
 
-            track.onended = () => console.log('[ActiveCallModal] Remote audio track ENDED');
+            // Monitor track events
+            track.onended = () => console.log('[ActiveCallModal] ⚠️ Remote audio track ENDED');
+            track.onmute = () => console.log('[ActiveCallModal] Remote audio track muted event');
+            track.onunmute = () => console.log('[ActiveCallModal] Remote audio track unmuted event');
         }
 
-        // Setup audio with gain control using the audio element
-        const audioElement = remoteAudioRef.current;
-        if (audioElement) {
-            setupAudioWithGain(remoteStream, audioElement);
-        }
+        // Setup audio with Web Audio API for volume control
+        // Note: Using a ref to get current volume to avoid re-running on volume change
+        setupAudioWithGain(remoteStream, volume);
 
         // Setup video if present
-        if (remoteVideoRef.current) {
+        if (remoteVideoRef.current && videoTracks.length > 0) {
             remoteVideoRef.current.srcObject = remoteStream;
             remoteVideoRef.current.play().catch((err) => {
                 console.log('[ActiveCallModal] Video autoplay blocked:', err.message);
@@ -223,22 +288,32 @@ export function ActiveCallModal({
 
         // Cleanup
         return () => {
-            if (audioContextRef.current) {
-                audioContextRef.current.close();
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                sourceNodeRef.current?.disconnect();
+                gainNodeRef.current?.disconnect();
+                audioContextRef.current.close().catch(() => {});
                 audioContextRef.current = null;
+                gainNodeRef.current = null;
+                sourceNodeRef.current = null;
+                audioSetupForStreamRef.current = null;
             }
         };
-    }, [remoteStream, setupAudioWithGain]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [remoteStream, setupAudioWithGain]); // volume intentionally omitted - handled by separate effect
 
     // Handle manual audio enable (for autoplay policy)
     const handleManualPlay = async () => {
         try {
+            // Resume audio context if suspended
             if (audioContextRef.current?.state === 'suspended') {
                 await audioContextRef.current.resume();
+                console.log('[ActiveCallModal] AudioContext resumed manually');
             }
-            const audioElement = remoteAudioRef.current;
-            if (remoteStream && audioElement) {
-                await setupAudioWithGain(remoteStream, audioElement);
+            
+            // Re-setup audio if needed
+            if (remoteStream) {
+                audioSetupForStreamRef.current = null; // Force re-setup
+                await setupAudioWithGain(remoteStream, volume);
             }
             setAudioPlaybackFailed(false);
         } catch (err) {
@@ -349,7 +424,16 @@ export function ActiveCallModal({
             ref={containerRef}
             className="fixed inset-0 bg-[#1e1f22] flex flex-col z-[100]"
         >
-            {/* Hidden audio element as fallback */}
+            {/* Hidden muted audio element - Chrome WebRTC workaround */}
+            <audio
+                ref={hiddenAudioRef}
+                muted
+                autoPlay
+                playsInline
+                className="hidden"
+            />
+            
+            {/* Backup audio element (fallback) */}
             <audio
                 ref={remoteAudioRef}
                 autoPlay

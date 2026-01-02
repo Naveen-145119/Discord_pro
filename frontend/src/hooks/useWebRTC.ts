@@ -333,17 +333,13 @@ export function useWebRTC({
                         break;
                     }
 
-                    // Skip if we already received an answer from this peer
-                    if (establishedConnectionsRef.current.has(peerId)) {
-                        console.log('[WebRTC] Ignoring duplicate answer - connection already established with:', peerId);
-                        break;
-                    }
-
+                    // Check signaling state first - we need to be in have-local-offer to accept answer
                     if (pc.signalingState !== 'have-local-offer') {
                         console.log('[WebRTC] Received answer but signaling state is:', pc.signalingState, '- ignoring');
                         break;
                     }
 
+                    // Accept the answer (this handles both initial connection AND renegotiation)
                     await pc.setRemoteDescription({
                         type: 'answer',
                         sdp: signal.sdp,
@@ -351,7 +347,7 @@ export function useWebRTC({
                     
                     // Mark this connection as established
                     establishedConnectionsRef.current.add(peerId);
-                    console.log('[WebRTC] Remote description (answer) set, connection established with:', peerId);
+                    console.log('[WebRTC] Remote description (answer) set, connection established/renegotiated with:', peerId);
 
                     const queuedCandidates = pendingIceCandidatesRef.current.get(peerId) || [];
                     if (queuedCandidates.length > 0) {
