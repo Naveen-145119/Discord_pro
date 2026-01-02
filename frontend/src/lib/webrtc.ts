@@ -1,9 +1,22 @@
 
+/**
+ * ICE Server Configuration for WebRTC
+ * 
+ * STUN servers: Used to discover public IP address (NAT traversal)
+ * TURN servers: Used as relay when direct P2P connection fails
+ * 
+ * Best practice: Include multiple STUN servers and at least one TURN server
+ * for reliable connections across different network configurations.
+ */
 export const ICE_SERVERS: RTCIceServer[] = [
+    // Google's public STUN servers
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
+    // Additional public STUN servers for redundancy
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    // Free TURN servers from Open Relay Project
+    // Note: For production, use your own TURN servers or a service like Twilio/Xirsys
     {
         urls: 'turn:openrelay.metered.ca:80',
         username: 'openrelayproject',
@@ -11,6 +24,11 @@ export const ICE_SERVERS: RTCIceServer[] = [
     },
     {
         urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+    },
+    {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
         username: 'openrelayproject',
         credential: 'openrelayproject',
     },
