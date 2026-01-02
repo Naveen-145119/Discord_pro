@@ -1,7 +1,3 @@
-/**
- * VideoGrid Component
- * Displays video feeds in responsive grid layout
- */
 import { useRef, useEffect } from 'react';
 import type { CallParticipant } from '@/lib/webrtc';
 import { MicOff, MonitorUp } from 'lucide-react';
@@ -23,9 +19,8 @@ export function VideoGrid({
     isLocalVideoOn,
     isLocalScreenSharing,
 }: VideoGridProps) {
-    const totalParticipants = participants.size + 1; // +1 for self
+    const totalParticipants = participants.size + 1;
 
-    // Calculate grid layout
     const getGridClass = () => {
         if (totalParticipants === 1) return 'grid-cols-1';
         if (totalParticipants === 2) return 'grid-cols-2';
@@ -36,7 +31,6 @@ export function VideoGrid({
 
     return (
         <div className={`grid ${getGridClass()} gap-2 p-4 h-full bg-background-primary`}>
-            {/* Local video */}
             <VideoTile
                 stream={localStream}
                 displayName={localDisplayName}
@@ -46,7 +40,6 @@ export function VideoGrid({
                 isSelf
             />
 
-            {/* Remote videos */}
             {Array.from(participants.values()).map((participant) => (
                 <VideoTile
                     key={participant.odId}
@@ -61,12 +54,11 @@ export function VideoGrid({
     );
 }
 
-// Video tile sub-component
 function VideoTile({
     stream,
     displayName,
     isMuted,
-    isVideoOn: _, // Unused but required by type
+    isVideoOn: _,
     isScreenSharing,
     isSelf = false,
 }: {
@@ -78,17 +70,14 @@ function VideoTile({
     isSelf?: boolean;
 }) {
     const videoRef = useRef<HTMLVideoElement>(null);
-    // CRITICAL FIX: Separate audio element for when video is hidden
     const audioRef = useRef<HTMLAudioElement>(null);
 
-    // Update video element when stream changes
     useEffect(() => {
         if (videoRef.current && stream) {
             videoRef.current.srcObject = stream;
         }
     }, [stream]);
 
-    // CRITICAL FIX: Always play audio through hidden audio element for remote participants
     useEffect(() => {
         if (audioRef.current && stream && !isSelf) {
             audioRef.current.srcObject = stream;
@@ -102,7 +91,6 @@ function VideoTile({
 
     return (
         <div className="relative rounded-lg overflow-hidden bg-background-secondary aspect-video">
-            {/* CRITICAL: Hidden audio element ensures audio plays even when video is not shown */}
             {!isSelf && stream && (
                 <audio
                     ref={audioRef}
@@ -117,11 +105,10 @@ function VideoTile({
                     ref={videoRef}
                     autoPlay
                     playsInline
-                    muted={isSelf} // Mute self to prevent echo
+                    muted={isSelf}
                     className="w-full h-full object-cover"
                 />
             ) : (
-                // Avatar placeholder when no video
                 <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-24 h-24 rounded-full bg-discord-primary flex items-center justify-center">
                         <span className="text-3xl font-bold text-white">
@@ -131,7 +118,6 @@ function VideoTile({
                 </div>
             )}
 
-            {/* Overlay with name and status */}
             <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-white truncate">
@@ -150,7 +136,6 @@ function VideoTile({
                 </div>
             </div>
 
-            {/* Self indicator */}
             {isSelf && (
                 <div className="absolute top-2 right-2">
                     <span className="px-2 py-1 text-xs bg-black/50 rounded text-white">

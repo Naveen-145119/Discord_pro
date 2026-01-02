@@ -25,21 +25,17 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
             onClose();
             navigate(`/servers/${server.$id}`);
         } catch {
-            // Error handled by store
         }
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/80"
                 onClick={onClose}
             />
 
-            {/* Modal */}
             <div className="relative bg-background-primary rounded-md shadow-elevation-high w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
-                {/* Close button */}
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 text-interactive-normal hover:text-interactive-hover"
@@ -47,7 +43,6 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
                     <X size={24} />
                 </button>
 
-                {/* Header */}
                 <div className="pt-6 px-6 text-center">
                     <h2 className="text-2xl font-bold text-text-heading">Customize your server</h2>
                     <p className="text-text-muted mt-2 text-sm">
@@ -55,9 +50,7 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
                     </p>
                 </div>
 
-                {/* Form */}
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                    {/* Server icon upload (placeholder) */}
                     <div className="flex justify-center">
                         <button
                             type="button"
@@ -68,7 +61,6 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
                         </button>
                     </div>
 
-                    {/* Server name */}
                     <div>
                         <label
                             htmlFor="serverName"
@@ -87,18 +79,15 @@ export function CreateServerModal({ onClose }: CreateServerModalProps) {
                         />
                     </div>
 
-                    {/* Error */}
                     {error && (
                         <p className="text-discord-red text-sm">{error}</p>
                     )}
 
-                    {/* Terms notice */}
                     <p className="text-xs text-text-muted">
                         By creating a server, you agree to Discord's{' '}
                         <span className="text-text-link">Community Guidelines</span>.
                     </p>
 
-                    {/* Actions */}
                     <div className="flex justify-between pt-2">
                         <button
                             type="button"

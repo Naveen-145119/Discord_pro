@@ -74,6 +74,12 @@ export function useWebRTC({
     
     // Track processed signal IDs to prevent duplicate processing
     const processedSignalIdsRef = useRef<Set<string>>(new Set());
+    
+    // Track which peer connections have been established (received answer)
+    const establishedConnectionsRef = useRef<Set<string>>(new Set());
+    
+    // Track if we've sent an offer to each peer (to handle glare)
+    const sentOffersRef = useRef<Set<string>>(new Set());
 
     useEffect(() => {
         channelIdRef.current = channelId;
@@ -220,10 +226,29 @@ export function useWebRTC({
                         break;
                     }
 
-                    // CRITICAL: Only process offer if in stable state
-                    // If we already processed an offer, we're in have-remote-offer or have-local-pranswer
-                    if (pc.signalingState !== 'stable') {
-                        console.log('[WebRTC] Ignoring duplicate offer, signaling state is:', pc.signalingState);
+                    // Skip if connection is already established with this peer
+                    if (establishedConnectionsRef.current.has(peerId)) {
+                        console.log('[WebRTC] Ignoring offer - connection already established with:', peerId);
+                        break;
+                    }
+
+                    // Handle glare (both peers sent offers simultaneously)
+                    // Use lexicographic comparison of user IDs to determine who should be polite
+                    const weArePolite = userId > peerId;
+                    
+                    if (pc.signalingState === 'have-local-offer') {
+                        if (weArePolite) {
+                            // We're polite: rollback our offer and accept theirs
+                            console.log('[WebRTC] Glare detected - we are polite, rolling back our offer');
+                            await pc.setLocalDescription({ type: 'rollback' });
+                            sentOffersRef.current.delete(peerId);
+                        } else {
+                            // We're impolite: ignore their offer, they should accept ours
+                            console.log('[WebRTC] Glare detected - we are impolite, ignoring their offer');
+                            break;
+                        }
+                    } else if (pc.signalingState !== 'stable') {
+                        console.log('[WebRTC] Ignoring offer, signaling state is:', pc.signalingState);
                         break;
                     }
 
@@ -272,8 +297,14 @@ export function useWebRTC({
                         break;
                     }
 
+                    // Skip if we already received an answer from this peer
+                    if (establishedConnectionsRef.current.has(peerId)) {
+                        console.log('[WebRTC] Ignoring duplicate answer - connection already established with:', peerId);
+                        break;
+                    }
+
                     if (pc.signalingState !== 'have-local-offer') {
-                        console.warn('[WebRTC] Received answer but signaling state is:', pc.signalingState);
+                        console.log('[WebRTC] Received answer but signaling state is:', pc.signalingState, '- ignoring');
                         break;
                     }
 
@@ -281,7 +312,10 @@ export function useWebRTC({
                         type: 'answer',
                         sdp: signal.sdp,
                     });
-                    console.log('[WebRTC] Remote description (answer) set, connection should establish');
+                    
+                    // Mark this connection as established
+                    establishedConnectionsRef.current.add(peerId);
+                    console.log('[WebRTC] Remote description (answer) set, connection established with:', peerId);
 
                     const queuedCandidates = pendingIceCandidatesRef.current.get(peerId) || [];
                     if (queuedCandidates.length > 0) {
@@ -408,6 +442,7 @@ export function useWebRTC({
                     const offer = await pc.createOffer();
                     await pc.setLocalDescription(offer);
 
+                    sentOffersRef.current.add(effectiveTargetUserId);
                     await sendSignal(effectiveTargetUserId, 'offer', {
                         sdp: offer.sdp,
                     });
@@ -506,6 +541,10 @@ export function useWebRTC({
         
         // Clear processed signal IDs for fresh start on next call
         processedSignalIdsRef.current.clear();
+        
+        // Clear established connections tracking
+        establishedConnectionsRef.current.clear();
+        sentOffersRef.current.clear();
 
         setParticipants(new Map());
         setConnectionState('disconnected');

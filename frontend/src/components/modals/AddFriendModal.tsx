@@ -7,9 +7,6 @@ interface AddFriendModalProps {
     onSendRequest: (username: string) => Promise<void>;
 }
 
-/**
- * Modal for adding friends by username
- */
 export function AddFriendModal({ isOpen, onClose, onSendRequest }: AddFriendModalProps) {
     const [username, setUsername] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -51,15 +48,12 @@ export function AddFriendModal({ isOpen, onClose, onSendRequest }: AddFriendModa
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/70 backdrop-blur-sm"
                 onClick={handleClose}
             />
 
-            {/* Modal */}
             <div className="relative bg-background-primary rounded-lg shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-                {/* Header */}
                 <div className="px-6 py-4 border-b border-background-tertiary">
                     <div className="flex items-center justify-between">
                         <h2 className="text-xl font-bold text-text-heading">Add Friend</h2>
@@ -75,7 +69,6 @@ export function AddFriendModal({ isOpen, onClose, onSendRequest }: AddFriendModa
                     </p>
                 </div>
 
-                {/* Body */}
                 <form onSubmit={handleSubmit} className="p-6">
                     <div className="mb-4">
                         <label className="block text-xs font-bold text-text-normal uppercase mb-2">
@@ -92,21 +85,18 @@ export function AddFriendModal({ isOpen, onClose, onSendRequest }: AddFriendModa
                         />
                     </div>
 
-                    {/* Error message */}
                     {error && (
                         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md">
                             <p className="text-sm text-red-400">{error}</p>
                         </div>
                     )}
 
-                    {/* Success message */}
                     {success && (
                         <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-md">
                             <p className="text-sm text-green-400">{success}</p>
                         </div>
                     )}
 
-                    {/* Actions */}
                     <div className="flex justify-end gap-3">
                         <button
                             type="button"

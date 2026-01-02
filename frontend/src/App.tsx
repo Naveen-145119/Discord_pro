@@ -2,21 +2,17 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 
-// Layout
 import { MainLayout } from '@/components/layout/MainLayout';
 
-// Providers
 import { CallProvider } from '@/providers/CallProvider';
 import { RealtimeProvider } from '@/providers/RealtimeProvider';
 
-// Pages
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { HomePage } from '@/pages/HomePage';
 import { ServerPage } from '@/pages/ServerPage';
 import { DMPage } from '@/pages/DMPage';
 
-// Loading screen
 function LoadingScreen() {
   return (
     <div className="flex h-screen items-center justify-center bg-background-tertiary">
@@ -28,7 +24,6 @@ function LoadingScreen() {
   );
 }
 
-// Protected route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
 
@@ -43,7 +38,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Auth route (redirect if already logged in)
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
 
@@ -72,7 +66,6 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Auth routes */}
         <Route
           path="/login"
           element={
@@ -90,7 +83,6 @@ export default function App() {
           }
         />
 
-        {/* Protected routes */}
         <Route
           path="/"
           element={
@@ -108,7 +100,6 @@ export default function App() {
           <Route path="servers/:serverId/*" element={<ServerPage />} />
         </Route>
 
-        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

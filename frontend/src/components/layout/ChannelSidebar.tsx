@@ -16,24 +16,17 @@ interface ChannelSidebarProps {
     channels: Channel[];
 }
 
-/**
- * Channel sidebar for a server
- * Shows server name, channels organized by category
- */
 export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
     const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuthStore();
 
-    // Get current channel from URL
     const currentChannelId = location.pathname.match(/\/channels\/([^/]+)/)?.[1];
 
-    // Organize channels by category
     const categories = channels.filter(c => c.type === 'category');
     const textChannels = channels.filter(c => c.type === 'text');
     const voiceChannels = channels.filter(c => c.type === 'voice');
 
-    // Group channels by parent
     const channelsByParent = new Map<string | null, Channel[]>();
     [...textChannels, ...voiceChannels].forEach(channel => {
         const parentId = channel.parentId;
@@ -49,7 +42,6 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
 
     return (
         <div className="w-60 bg-background-secondary flex flex-col">
-            {/* Server header */}
             <button className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low hover:bg-background-modifier-hover transition-colors">
                 <span className="font-semibold text-text-heading truncate">
                     {server.name}
@@ -57,9 +49,7 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
                 <ChevronDown size={18} className="text-interactive-normal flex-shrink-0" />
             </button>
 
-            {/* Channels list */}
             <div className="flex-1 overflow-y-auto py-3 space-y-0.5">
-                {/* Channels without category */}
                 {channelsByParent.get(null)?.map(channel => (
                     <ChannelItem
                         key={channel.$id}
@@ -69,7 +59,6 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
                     />
                 ))}
 
-                {/* Categories with their channels */}
                 {categories.map(category => (
                     <div key={category.$id} className="pt-4 first:pt-0">
                         <button className="flex items-center gap-1 px-1 py-1 w-full text-left group">
@@ -97,21 +86,17 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
                 ))}
             </div>
 
-            {/* User panel */}
             <div className="p-2 bg-background-secondary-alt">
                 <div className="flex items-center gap-2 p-1 rounded hover:bg-background-modifier-hover">
-                    {/* Avatar */}
                     <div className="relative">
                         <div className="avatar w-8 h-8 bg-discord-primary">
                             <span className="text-xs font-medium text-white">
                                 {user?.displayName?.charAt(0) || '?'}
                             </span>
                         </div>
-                        {/* Status indicator */}
                         <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-status-online rounded-full border-[3px] border-background-secondary-alt" />
                     </div>
 
-                    {/* User info */}
                     <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-text-normal truncate">
                             {user?.displayName}
@@ -121,7 +106,6 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
                         </p>
                     </div>
 
-                    {/* Voice controls */}
                     <div className="flex items-center gap-0.5">
                         <button
                             className="p-1.5 rounded hover:bg-background-modifier-active text-interactive-normal hover:text-interactive-hover"
@@ -148,7 +132,6 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
     );
 }
 
-// Channel item component
 function ChannelItem({
     channel,
     isActive,

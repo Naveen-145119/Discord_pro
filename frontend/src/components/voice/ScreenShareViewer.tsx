@@ -1,7 +1,3 @@
-/**
- * ScreenShareViewer Component
- * Displays screen share stream with controls
- */
 import { useRef, useEffect, useState } from 'react';
 import { Maximize, Minimize, X } from 'lucide-react';
 
@@ -22,14 +18,12 @@ export function ScreenShareViewer({
     const containerRef = useRef<HTMLDivElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
 
-    // Update video element when stream changes
     useEffect(() => {
         if (videoRef.current && stream) {
             videoRef.current.srcObject = stream;
         }
     }, [stream]);
 
-    // Handle fullscreen toggle
     const toggleFullscreen = async () => {
         if (!containerRef.current) return;
 
@@ -46,7 +40,6 @@ export function ScreenShareViewer({
         }
     };
 
-    // Listen for fullscreen changes
     useEffect(() => {
         const handleFullscreenChange = () => {
             setIsFullscreen(!!document.fullscreenElement);
@@ -63,7 +56,6 @@ export function ScreenShareViewer({
             ref={containerRef}
             className="relative w-full h-full bg-black rounded-lg overflow-hidden group"
         >
-            {/* Video */}
             <video
                 ref={videoRef}
                 autoPlay
@@ -71,7 +63,6 @@ export function ScreenShareViewer({
                 className="w-full h-full object-contain"
             />
 
-            {/* Controls overlay */}
             <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -82,7 +73,6 @@ export function ScreenShareViewer({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {/* Fullscreen toggle */}
                         <button
                             onClick={toggleFullscreen}
                             className="p-2 rounded-lg bg-black/50 text-white hover:bg-black/70 transition-colors"
@@ -91,7 +81,6 @@ export function ScreenShareViewer({
                             {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                         </button>
 
-                        {/* Close button (for self) */}
                         {isSelf && onClose && (
                             <button
                                 onClick={onClose}
@@ -105,7 +94,6 @@ export function ScreenShareViewer({
                 </div>
             </div>
 
-            {/* Stats overlay (bottom) */}
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="flex items-center justify-between text-xs text-white/70">
                     <span>1080p @ 60fps</span>

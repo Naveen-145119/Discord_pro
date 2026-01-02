@@ -1,6 +1,3 @@
-/**
- * Incoming Call Modal - Shows when receiving a call
- */
 import { Phone, Video, X } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
 
@@ -17,7 +14,6 @@ export function IncomingCallModal({ call, onAnswer, onDecline }: IncomingCallMod
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100]">
             <div className="bg-background-secondary rounded-2xl p-8 max-w-sm w-full mx-4 text-center animate-pulse-slow">
-                {/* Caller avatar */}
                 <div className="relative inline-block mb-4">
                     <div className="w-24 h-24 rounded-full bg-discord-primary flex items-center justify-center ring-4 ring-green-500/50 animate-ping-slow">
                         {call.caller?.avatarUrl ? (
@@ -41,7 +37,6 @@ export function IncomingCallModal({ call, onAnswer, onDecline }: IncomingCallMod
                     </div>
                 </div>
 
-                {/* Caller info */}
                 <h2 className="text-xl font-bold text-text-heading mb-1">
                     {callerName}
                 </h2>
@@ -49,9 +44,7 @@ export function IncomingCallModal({ call, onAnswer, onDecline }: IncomingCallMod
                     Incoming {isVideoCall ? 'Video' : 'Voice'} Call...
                 </p>
 
-                {/* Action buttons */}
                 <div className="flex items-center justify-center gap-6">
-                    {/* Decline */}
                     <button
                         onClick={onDecline}
                         className="p-4 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all hover:scale-110 shadow-lg"
@@ -60,7 +53,6 @@ export function IncomingCallModal({ call, onAnswer, onDecline }: IncomingCallMod
                         <X size={28} />
                     </button>
 
-                    {/* Answer */}
                     <button
                         onClick={onAnswer}
                         className="p-4 rounded-full bg-green-500 hover:bg-green-600 text-white transition-all hover:scale-110 shadow-lg animate-bounce"
@@ -74,13 +66,11 @@ export function IncomingCallModal({ call, onAnswer, onDecline }: IncomingCallMod
                     </button>
                 </div>
 
-                {/* Ring sound indicator */}
                 <p className="text-xs text-text-muted mt-6 animate-pulse">
                     🔔 Ringing...
                 </p>
             </div>
 
-            {/* Add animation keyframes */}
             <style>{`
                 @keyframes ping-slow {
                     0%, 100% { transform: scale(1); opacity: 1; }

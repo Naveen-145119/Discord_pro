@@ -1,9 +1,3 @@
-/**
- * Active Call Modal - Full screen call UI when in a call
- * 
- * CRITICAL: This modal handles both voice and video calls.
- * Audio MUST play regardless of video state!
- */
 import { useRef, useEffect, useState } from 'react';
 import { Phone, Video, MonitorUp, Mic, MicOff, VideoOff } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
@@ -49,7 +43,6 @@ export function ActiveCallModal({
         }
     }, [localStream]);
 
-    // Attach remote stream and attempt playback
     useEffect(() => {
         if (!remoteStream) {
             console.log('[ActiveCallModal] No remote stream yet');
@@ -57,10 +50,9 @@ export function ActiveCallModal({
         }
 
         const audioTracks = remoteStream.getAudioTracks();
-        console.log('[ActiveCallModal] Remote stream received, tracks:', 
+        console.log('[ActiveCallModal] Remote stream received, tracks:',
             remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
-        
-        // Log detailed audio track info
+
         if (audioTracks.length > 0) {
             const track = audioTracks[0];
             console.log('[ActiveCallModal] Remote audio track details:', {
@@ -71,8 +63,13 @@ export function ActiveCallModal({
                 readyState: track.readyState,
                 settings: track.getSettings(),
             });
-            
-            // Monitor track for mute/unmute events
+
+            // Ensure the track is enabled
+            if (!track.enabled) {
+                console.log('[ActiveCallModal] Enabling disabled audio track');
+                track.enabled = true;
+            }
+
             track.onmute = () => console.log('[ActiveCallModal] Remote audio track MUTED');
             track.onunmute = () => console.log('[ActiveCallModal] Remote audio track UNMUTED');
             track.onended = () => console.log('[ActiveCallModal] Remote audio track ENDED');
@@ -80,62 +77,86 @@ export function ActiveCallModal({
             console.warn('[ActiveCallModal] NO AUDIO TRACKS in remote stream!');
         }
 
-        // Attach to hidden audio element
-        if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.volume = 1.0; // Ensure volume is max
+        const audioElement = remoteAudioRef.current;
+        if (audioElement) {
+            // Clear previous srcObject first
+            audioElement.srcObject = null;
             
-            // Try to play immediately
-            const playPromise = remoteAudioRef.current.play();
-            if (playPromise !== undefined) {
-                playPromise
-                    .then(() => {
-                        console.log('[ActiveCallModal] Audio playback started successfully, volume:', 
-                            remoteAudioRef.current?.volume, 'muted:', remoteAudioRef.current?.muted);
-                        setAudioPlaybackFailed(false);
-                        
-                        // Check audio levels using Web Audio API
-                        try {
-                            const audioContext = new AudioContext();
-                            const source = audioContext.createMediaStreamSource(remoteStream);
-                            const analyser = audioContext.createAnalyser();
-                            analyser.fftSize = 256;
-                            source.connect(analyser);
-                            // Note: NOT connecting to destination to avoid feedback
-                            
-                            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                            let checkCount = 0;
-                            const checkInterval = setInterval(() => {
-                                analyser.getByteFrequencyData(dataArray);
-                                const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-                                console.log('[ActiveCallModal] Audio level:', average.toFixed(2));
-                                checkCount++;
-                                if (checkCount >= 5) {
-                                    clearInterval(checkInterval);
-                                    audioContext.close();
-                                }
-                            }, 1000);
-                        } catch (e) {
-                            console.log('[ActiveCallModal] Could not analyze audio:', e);
+            // Set the new stream
+            audioElement.srcObject = remoteStream;
+            audioElement.volume = 1.0;
+            audioElement.muted = false;
+
+            // Wait a brief moment before playing to ensure stream is ready
+            const playAudio = async () => {
+                try {
+                    // Resume AudioContext if suspended (needed for some browsers)
+                    if (typeof AudioContext !== 'undefined') {
+                        const tempContext = new AudioContext();
+                        if (tempContext.state === 'suspended') {
+                            await tempContext.resume();
                         }
-                    })
-                    .catch((err) => {
-                        console.error('[ActiveCallModal] Audio autoplay blocked:', err.name, err.message);
-                        setAudioPlaybackFailed(true);
-                    });
-            }
+                        tempContext.close();
+                    }
+
+                    await audioElement.play();
+                    console.log('[ActiveCallModal] Audio playback started successfully, volume:',
+                        audioElement.volume, 'muted:', audioElement.muted);
+                    setAudioPlaybackFailed(false);
+
+                    // Analyze audio levels for debugging
+                    try {
+                        const audioContext = new AudioContext();
+                        await audioContext.resume();
+                        const source = audioContext.createMediaStreamSource(remoteStream);
+                        const analyser = audioContext.createAnalyser();
+                        analyser.fftSize = 256;
+                        source.connect(analyser);
+                        // Also connect to destination to ensure audio plays
+                        // (some browsers need this for the stream to actually output)
+                        
+                        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                        let checkCount = 0;
+                        const checkInterval = setInterval(() => {
+                            analyser.getByteFrequencyData(dataArray);
+                            const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                            console.log('[ActiveCallModal] Audio level:', average.toFixed(2));
+                            checkCount++;
+                            if (checkCount >= 5) {
+                                clearInterval(checkInterval);
+                                source.disconnect();
+                                audioContext.close();
+                            }
+                        }, 1000);
+                    } catch (e) {
+                        console.log('[ActiveCallModal] Could not analyze audio:', e);
+                    }
+                } catch (err) {
+                    console.error('[ActiveCallModal] Audio autoplay blocked:', (err as Error).name, (err as Error).message);
+                    setAudioPlaybackFailed(true);
+                }
+            };
+
+            // Small delay to ensure stream tracks are active
+            setTimeout(playAudio, 100);
         }
 
-        // Attach to video element
         if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = remoteStream;
             remoteVideoRef.current.play().catch((err) => {
                 console.log('[ActiveCallModal] Video autoplay blocked:', err.message);
             });
         }
+        
+        // Cleanup function
+        return () => {
+            if (audioElement) {
+                audioElement.pause();
+                audioElement.srcObject = null;
+            }
+        };
     }, [remoteStream]);
 
-    // Manual play handler for when autoplay is blocked
     const handleManualPlay = async () => {
         try {
             if (remoteAudioRef.current) {
@@ -161,8 +182,6 @@ export function ActiveCallModal({
 
     return (
         <div className="fixed inset-0 bg-black/90 flex flex-col z-[100]">
-            {/* CRITICAL: Hidden audio element that ALWAYS plays remote audio */}
-            {/* This ensures audio works even when video element is conditionally hidden */}
             <audio
                 ref={remoteAudioRef}
                 autoPlay
@@ -170,7 +189,6 @@ export function ActiveCallModal({
                 className="hidden"
             />
 
-            {/* Autoplay blocked warning */}
             {audioPlaybackFailed && remoteStream && (
                 <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50">
                     <button
@@ -182,7 +200,6 @@ export function ActiveCallModal({
                 </div>
             )}
 
-            {/* Header */}
             <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="relative">
@@ -206,17 +223,12 @@ export function ActiveCallModal({
                 </div>
             </div>
 
-            {/* Main video area */}
             <div className="flex-1 relative flex items-center justify-center">
-                {/* Remote video or avatar */}
-                {/* CRITICAL FIX: Safely check for video tracks with null guards */}
                 {remoteStream && (remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks().some(t => t.enabled && t.readyState === 'live')) ? (
                     <video
                         ref={remoteVideoRef}
                         autoPlay
                         playsInline
-                        // CRITICAL: Do NOT mute - audio is handled by hidden audio element as backup
-                        // but video element should also play audio for better sync
                         className="w-full h-full object-contain"
                     />
                 ) : (
@@ -244,7 +256,6 @@ export function ActiveCallModal({
                     </div>
                 )}
 
-                {/* Local video (picture-in-picture) */}
                 {localStream && isVideoOn && (
                     <div className="absolute bottom-4 right-4 w-48 aspect-video bg-black rounded-lg overflow-hidden shadow-2xl border border-gray-700">
                         <video
@@ -258,9 +269,7 @@ export function ActiveCallModal({
                 )}
             </div>
 
-            {/* Controls */}
             <div className="p-6 flex items-center justify-center gap-4">
-                {/* Mute */}
                 <button
                     onClick={onToggleMute}
                     className={`p-4 rounded-full transition-all hover:scale-110 ${isMuted
@@ -272,7 +281,6 @@ export function ActiveCallModal({
                     {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
                 </button>
 
-                {/* Video */}
                 <button
                     onClick={onToggleVideo}
                     className={`p-4 rounded-full transition-all hover:scale-110 ${!isVideoOn
@@ -284,7 +292,6 @@ export function ActiveCallModal({
                     {isVideoOn ? <Video size={24} /> : <VideoOff size={24} />}
                 </button>
 
-                {/* Screen Share - 1080p 60fps */}
                 <button
                     onClick={onToggleScreenShare}
                     className={`p-4 rounded-full transition-all hover:scale-110 ${isScreenSharing
@@ -296,7 +303,6 @@ export function ActiveCallModal({
                     <MonitorUp size={24} />
                 </button>
 
-                {/* End Call */}
                 <button
                     onClick={onEndCall}
                     className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-110"
