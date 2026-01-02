@@ -2,7 +2,7 @@
  * WebRTC Signaling - Appwrite Function
  * Manages voice states and WebRTC signaling for peer connections
  */
-import { Client, Databases, ID, Query } from 'node-appwrite';
+import { Client, Databases, ID, Query, Permission, Role } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
     // Validate environment variables
@@ -189,7 +189,6 @@ export default async ({ req, res, log, error }) => {
             case 'offer':
             case 'answer':
             case 'ice-candidate': {
-                // Validate signaling data
                 if (!data || typeof data !== 'object') {
                     return res.json({ success: false, error: 'Missing signaling data' }, 400);
                 }
@@ -200,7 +199,8 @@ export default async ({ req, res, log, error }) => {
                     return res.json({ success: false, error: 'Missing targetUserId' }, 400);
                 }
 
-                // Create signaling document for real-time delivery
+                // Create signaling document with proper permissions
+                // Both sender and receiver need to read for Realtime to work
                 const signal = await databases.createDocument(
                     DATABASE_ID,
                     'webrtc_signals',
@@ -213,7 +213,11 @@ export default async ({ req, res, log, error }) => {
                         sdp: sdp || null,
                         candidate: candidate ? JSON.stringify(candidate) : null,
                         expiresAt: new Date(Date.now() + 30000).toISOString()
-                    }
+                    },
+                    [
+                        Permission.read(Role.user(userId)),
+                        Permission.read(Role.user(targetUserId)),
+                    ]
                 );
 
                 log(`Signaling ${action} from ${userId} to ${targetUserId} in ${channelId}`);

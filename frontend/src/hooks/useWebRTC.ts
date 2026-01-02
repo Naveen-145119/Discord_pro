@@ -6,7 +6,8 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { functions, COLLECTIONS } from '@/lib/appwrite';
+import { functions, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
+import { Query } from 'appwrite';
 import { useRealtime } from '@/providers/RealtimeProvider';
 import {
     createPeerConnection,
@@ -20,9 +21,6 @@ import {
     type CallParticipant,
     type WebRTCSignal,
 } from '@/lib/webrtc';
-// ID import removed - no longer using direct database writes
-
-// SIGNALS_COLLECTION constant removed - using COLLECTIONS.WEBRTC_SIGNALS directly
 
 interface UseWebRTCProps {
     channelId: string;
@@ -88,11 +86,12 @@ export function useWebRTC({
     const localStreamRef = useRef<MediaStream | null>(null);
     const channelIdRef = useRef(channelId);
     const targetUserIdRef = useRef(targetUserId);
+    const connectionStateRef = useRef<ConnectionState>('disconnected');
 
     // Buffer for signals that arrive before we're ready to process them
     const pendingSignalsRef = useRef<WebRTCSignal[]>([]);
     
-    // CRITICAL FIX: Queue ICE candidates that arrive before remote description is set
+    // Queue ICE candidates that arrive before remote description is set
     const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
     // Keep refs synced with props/state
@@ -342,81 +341,68 @@ export function useWebRTC({
         }
     }, [userId, sendSignal, setupPeerConnection]);
 
+    // Track if subscription is active to trigger re-subscription when channelId changes
+    const [activeChannelId, setActiveChannelId] = useState<string>('');
+
     // Subscribe to WebRTC signals via CENTRALIZED RealtimeProvider
-    // CRITICAL: Subscribe early but buffer signals until ready
-    // Keep connectionState in a ref to avoid re-subscription on state change
-    const connectionStateRef = useRef(connectionState);
     useEffect(() => {
-        connectionStateRef.current = connectionState;
-    }, [connectionState]);
+        if (!activeChannelId) return;
 
-    useEffect(() => {
-        // Need channelId to filter signals
-        if (!channelIdRef.current) return;
-
-        console.log('[WebRTC] Setting up signal subscription for channel:', channelIdRef.current);
+        console.log('[WebRTC] Setting up signal subscription for channel:', activeChannelId);
 
         const unsubscribe = subscribeRealtime((event) => {
-            // Only handle WebRTC signals
             if (event.collection !== COLLECTIONS.WEBRTC_SIGNALS) return;
 
             const signal = event.payload as WebRTCSignal;
 
-            // Only handle signals for THIS call's channel
-            if (signal.channelId !== channelIdRef.current) return;
+            if (signal.channelId !== activeChannelId) return;
 
-            // Check current connection state via ref (not stale closure)
             if (connectionStateRef.current === 'disconnected') {
-                console.log('[WebRTC] Buffering signal (not ready yet):', signal.type, 'from:', signal.fromUserId);
+                console.log('[WebRTC] Buffering signal:', signal.type, 'from:', signal.fromUserId);
                 pendingSignalsRef.current.push(signal);
             } else {
-                // Ready to process - handle immediately
                 handleSignal(signal);
             }
         });
 
-        // Store for cleanup
         unsubscribeRef.current = unsubscribe;
 
         return () => {
             unsubscribe();
             unsubscribeRef.current = null;
         };
-    }, [handleSignal, subscribeRealtime]); // Removed connectionState - using ref
+    }, [activeChannelId, handleSignal, subscribeRealtime]);
 
 
-    /**
-     * Join voice channel
-     */
     const joinChannel = useCallback(async (overrides?: { channelId?: string; targetUserId?: string; isInitiator?: boolean }) => {
         if (connectionState !== 'disconnected') return;
 
-        // Use overrides if provided (for when called before React re-renders)
-        // Otherwise fall back to refs
         const effectiveChannelId = overrides?.channelId || channelIdRef.current;
         const effectiveTargetUserId = overrides?.targetUserId || targetUserIdRef.current;
-        // CRITICAL FIX: Accept isInitiator override to avoid stale closure
         const effectiveIsInitiator = overrides?.isInitiator !== undefined ? overrides.isInitiator : isInitiator;
 
-        // CRITICAL: Sync refs IMMEDIATELY so sendSignal uses correct values!
-        // Without this, sendSignal would use empty channelIdRef.current and return early
-        if (effectiveChannelId) {
-            channelIdRef.current = effectiveChannelId;
+        if (!effectiveChannelId) {
+            console.error('[WebRTC] joinChannel: No channelId provided!');
+            return;
         }
+
+        channelIdRef.current = effectiveChannelId;
         if (effectiveTargetUserId) {
             targetUserIdRef.current = effectiveTargetUserId;
         }
 
         setConnectionState('connecting');
+        connectionStateRef.current = 'connecting';
         setError(null);
+        
+        // CRITICAL: Set activeChannelId to trigger subscription useEffect
+        setActiveChannelId(effectiveChannelId);
 
         try {
-            // Get local audio stream
             const stream = await getUserMedia(false);
-            localStreamRef.current = stream; // CRITICAL: Sync ref immediately
+            localStreamRef.current = stream;
             setLocalStream(stream);
 
-            // Register voice state with backend - use effective channelId
             await functions.createExecution('webrtc-signal', JSON.stringify({
                 action: 'join',
                 channelId: effectiveChannelId,
@@ -424,23 +410,15 @@ export function useWebRTC({
                 data: {}
             }), false);
 
-            // Setup voice activity detection
             voiceDetectorCleanupRef.current = createVoiceActivityDetector(
                 stream,
                 setIsSpeaking
             );
 
-            // NOTE: Signaling subscription moved to useEffect below to use centralized RealtimeProvider
-            // This prevents dual WebSocket connections!
-
-            // Only initiator (caller) sends offer
-            // Receiver will get offer via Realtime and respond with answer in handleSignal
             if (effectiveIsInitiator) {
                 if (mode === 'dm' && effectiveTargetUserId) {
-                    // DM mode: Create targeted peer connection to the other user
                     const pc = createPeerConnection();
 
-                    // Add local tracks BEFORE creating offer (critical for WebRTC)
                     stream.getTracks().forEach((track) => {
                         pc.addTrack(track, stream);
                     });
@@ -454,11 +432,11 @@ export function useWebRTC({
                     await sendSignal(effectiveTargetUserId, 'offer', {
                         sdp: offer.sdp,
                     });
+                    
+                    console.log('[WebRTC] Offer sent to:', effectiveTargetUserId);
                 } else {
-                    // Channel mode: Broadcast offer to all participants
                     const pc = createPeerConnection();
 
-                    // Add local tracks BEFORE creating offer (critical for WebRTC)
                     stream.getTracks().forEach((track) => {
                         pc.addTrack(track, stream);
                     });
@@ -472,18 +450,40 @@ export function useWebRTC({
                         sdp: offer.sdp,
                     });
                 }
+            } else {
+                console.log('[WebRTC] Receiver mode - waiting for offer from:', effectiveTargetUserId);
+                
+                // CRITICAL: Fetch existing signals from database
+                // Realtime only delivers NEW events, not existing documents!
+                // The offer may have been created before we subscribed
+                try {
+                    const existingSignals = await databases.listDocuments(
+                        DATABASE_ID,
+                        COLLECTIONS.WEBRTC_SIGNALS,
+                        [
+                            Query.equal('channelId', effectiveChannelId),
+                            Query.equal('toUserId', userId),
+                            Query.orderAsc('$createdAt')
+                        ]
+                    );
+                    
+                    if (existingSignals.documents.length > 0) {
+                        console.log('[WebRTC] Found', existingSignals.documents.length, 'existing signals');
+                        for (const doc of existingSignals.documents) {
+                            const signal = doc as unknown as WebRTCSignal;
+                            await handleSignal(signal);
+                        }
+                    }
+                } catch (fetchErr) {
+                    console.error('[WebRTC] Failed to fetch existing signals:', fetchErr);
+                }
             }
-            // If not initiator (receiver), we just set up media and wait for offer
 
-            setConnectionState('connected');
-            connectionStateRef.current = 'connected'; // Update ref immediately
-
-            // CRITICAL: Process any buffered signals that arrived before we were ready
-            // This handles the case where offer arrived before receiver clicked Accept
+            // Process any buffered signals from Realtime
             if (pendingSignalsRef.current.length > 0) {
                 console.log('[WebRTC] Processing', pendingSignalsRef.current.length, 'buffered signals');
                 const bufferedSignals = [...pendingSignalsRef.current];
-                pendingSignalsRef.current = []; // Clear buffer first to avoid duplicates
+                pendingSignalsRef.current = [];
                 for (const signal of bufferedSignals) {
                     await handleSignal(signal);
                 }
@@ -492,7 +492,7 @@ export function useWebRTC({
             const message = err instanceof Error ? err.message : 'Failed to join channel';
             setError(message);
             setConnectionState('failed');
-            connectionStateRef.current = 'failed'; // Update ref immediately
+            connectionStateRef.current = 'failed';
         }
     }, [connectionState, handleSignal, sendSignal, setupPeerConnection, mode, isInitiator]); // Removed channelId/targetUserId - using refs
 
@@ -545,13 +545,14 @@ export function useWebRTC({
         // Reset state
         setParticipants(new Map());
         setConnectionState('disconnected');
-        connectionStateRef.current = 'disconnected'; // Update ref immediately
+        connectionStateRef.current = 'disconnected';
+        setActiveChannelId(''); // Clear to unsubscribe from signals
         setIsMuted(false);
         setIsDeafened(false);
         setIsVideoOn(false);
         setIsScreenSharing(false);
         setIsSpeaking(false);
-    }, [userId, screenStream]); // Removed localStream - using localStreamRef
+    }, [userId, screenStream]);
 
     /**
      * Toggle mute
