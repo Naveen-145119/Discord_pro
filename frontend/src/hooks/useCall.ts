@@ -60,7 +60,7 @@ export function useCall(): UseCallReturn {
         duration?: number
     ) => {
         if (!user?.$id) return;
-        
+
         try {
             const metadata: CallLogMetadata = {
                 callType,
@@ -216,15 +216,15 @@ export function useCall(): UseCallReturn {
                 ...callToAnswer,
                 status: 'answered'
             });
-            
+
             // Clear incoming call after setting current call
             setIncomingCall(null);
 
             // Join WebRTC with stored values (not dependent on state)
-            await webRTC.joinChannel({ 
-                channelId: answerChannelId, 
-                targetUserId: answerTargetUserId, 
-                isInitiator: false 
+            await webRTC.joinChannel({
+                channelId: answerChannelId,
+                targetUserId: answerTargetUserId,
+                isInitiator: false
             });
         } catch (err) {
             console.error('Failed to answer call:', err);
@@ -267,10 +267,10 @@ export function useCall(): UseCallReturn {
         }
 
         const callToEnd = currentCall;
-        
+
         if (callToEnd) {
             // Calculate call duration
-            const duration = callStartTimeRef.current 
+            const duration = callStartTimeRef.current
                 ? Math.floor((Date.now() - callStartTimeRef.current) / 1000)
                 : 0;
 
@@ -370,13 +370,20 @@ export function useCall(): UseCallReturn {
 
     const participantsSize = webRTC.participants.size;
     const participantIds = Array.from(webRTC.participants.keys()).join(',');
-    
+
     // Track changes in audio tracks for proper stream updates
     const [remoteStreamVersion, setRemoteStreamVersion] = useState(0);
-    
-    // Track the number of tracks to detect when new video tracks are added
-    const participantTrackCounts = Array.from(webRTC.participants.values())
-        .map(p => `${p.odId}:${p.stream?.getTracks().length || 0}:${p.stream?.getVideoTracks().length || 0}`)
+
+    // Fix 7: Track stream identity AND track states (not just counts) to detect all changes
+    // When screen share stops, we get a new stream object OR the track states change
+    const participantStreamSignature = Array.from(webRTC.participants.values())
+        .map(p => {
+            if (!p.stream) return `${p.odId}:null`;
+            const tracks = p.stream.getTracks();
+            // Include track IDs and states in signature to detect any change
+            const trackSig = tracks.map(t => `${t.kind}-${t.id.substring(0, 8)}-${t.readyState}`).sort().join(',');
+            return `${p.odId}:${p.stream.id.substring(0, 8)}:${trackSig}`;
+        })
         .join('|');
 
     useEffect(() => {
@@ -386,25 +393,36 @@ export function useCall(): UseCallReturn {
             const participantWithStream = participantsArray.find(p => p.stream);
             if (participantWithStream?.stream) {
                 const stream = participantWithStream.stream;
-                const audioCount = stream.getAudioTracks().length;
-                const videoCount = stream.getVideoTracks().length;
-                const prevVideoCount = remoteStream?.getVideoTracks().length || 0;
-                
-                // Check if this is a new stream OR if tracks have changed
+
+                // Count LIVE tracks only
+                const liveAudioTracks = stream.getAudioTracks().filter(t => t.readyState === 'live');
+                const liveVideoTracks = stream.getVideoTracks().filter(t => t.readyState === 'live');
+                const prevVideoCount = remoteStream?.getVideoTracks().filter(t => t.readyState === 'live').length || 0;
+
+                // ALWAYS update if stream object changed (our fix in useWebRTC now creates new streams)
                 if (remoteStream !== stream) {
                     console.log('[useCall] New remote stream from participant:', participantWithStream.odId,
-                        'audio:', audioCount, 'video:', videoCount);
+                        'audio:', liveAudioTracks.length, 'video:', liveVideoTracks.length,
+                        'stream ID:', stream.id.substring(0, 8));
                     setRemoteStream(stream);
                     setRemoteStreamVersion(v => v + 1);
-                } else if (videoCount !== prevVideoCount) {
-                    // Video track count changed (screen share started/stopped)
-                    console.log('[useCall] Video track count changed:', prevVideoCount, '->', videoCount, '- forcing update');
-                    setRemoteStream(stream); // Force re-set even if same reference
+                } else if (liveVideoTracks.length !== prevVideoCount) {
+                    // Live video track count changed (screen share started/stopped)
+                    console.log('[useCall] Video track count changed:', prevVideoCount, '->', liveVideoTracks.length, '- forcing update');
+                    // Create new stream reference to force React update even though tracks are same
+                    const updatedStream = new MediaStream();
+                    stream.getTracks().filter(t => t.readyState === 'live').forEach(t => updatedStream.addTrack(t));
+                    setRemoteStream(updatedStream);
                     setRemoteStreamVersion(v => v + 1);
                 }
             }
+        } else if (remoteStream) {
+            // All participants left - clear stream
+            console.log('[useCall] No participants with stream, clearing remote stream');
+            setRemoteStream(null);
+            setRemoteStreamVersion(v => v + 1);
         }
-    }, [participantsSize, participantIds, participantTrackCounts, webRTC.participants, remoteStream]);
+    }, [participantsSize, participantIds, participantStreamSignature, webRTC.participants, remoteStream]);
 
     useEffect(() => {
         return () => {
