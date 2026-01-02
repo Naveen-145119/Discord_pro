@@ -31,7 +31,7 @@ src/
 │   ├── authStore.ts   # Authentication state
 │   ├── serverStore.ts # Servers and channels
 │   └── messageStore.ts# Messages and realtime
-└── types/             # TypeScript definitions
+└── types/             # TypeScript definitions gg
 ```
 
 ## Available Scripts
