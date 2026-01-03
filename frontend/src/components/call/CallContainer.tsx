@@ -8,7 +8,7 @@
  * - Smooth transitions between states
  */
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { ParticipantCard } from './ParticipantCard';
 import { ScreenShareCard } from './ScreenShareCard';
 import { ThumbnailStrip } from './ThumbnailStrip';
@@ -76,12 +76,8 @@ export function CallContainer({
         return shares;
     }, [isLocalScreenSharing, localScreenStream, localDisplayName, participants]);
 
-    // Auto-focus new screen shares
-    useEffect(() => {
-        if (screenShares.length > 0 && !focusedId) {
-            setFocusedId(screenShares[0].odId);
-        }
-    }, [screenShares, focusedId]);
+    // NOTE: Removed auto-focus - grid view is the default per Discord behavior
+    // User must click "Watch Stream" to focus a screen share
 
     const handleFocus = useCallback((id: string) => {
         setFocusedId(prev => prev === id ? null : id);
@@ -123,9 +119,12 @@ export function CallContainer({
 
     return (
         <div className="relative w-full h-full bg-[#1e1f22] overflow-hidden">
-            {/* Focused View */}
+            {/* Focused View - Click anywhere to return to grid */}
             {focusedScreenShare && (
-                <div className="w-full h-full flex items-center justify-center p-4 pb-32">
+                <div
+                    className="w-full h-full flex items-center justify-center p-4 pb-32 cursor-pointer"
+                    onClick={() => setFocusedId(null)}
+                >
                     <ScreenShareCard
                         stream={focusedScreenShare.stream}
                         sharerId={focusedScreenShare.odId}
