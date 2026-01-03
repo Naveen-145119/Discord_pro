@@ -36,10 +36,15 @@ export function CallProvider({ children }: CallProviderProps) {
     const [callDuration, setCallDuration] = useState(0);
     const callStartTimeRef = useState<number | null>(null);
 
+    // Debug logging
+    console.log('[CallProvider] Render - currentCall:', call.currentCall?.$id, 'isCalling:', call.isCalling, 'callFriend:', callFriend?.displayName);
+
     const startCallWithFriend = async (friendId: string, channelId: string, callType: CallType, friend: User) => {
+        console.log('[CallProvider] startCallWithFriend called:', { friendId, channelId, callType, friend: friend.displayName });
         setCallFriend(friend);
         setIsMinimized(false); // Always start in full view
         await call.startCall(friendId, channelId, callType);
+        console.log('[CallProvider] startCall completed, currentCall should now be set');
     };
 
     useEffect(() => {

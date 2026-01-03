@@ -126,11 +126,14 @@ export function useCall(): UseCallReturn {
     const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
+        console.log('[useCall] startCall invoked', { friendId, channelId, callType, userId: user.$id });
+
         // Reset call tracking
         callLogCreatedRef.current = false;
         callStartTimeRef.current = null;
 
         try {
+            console.log('[useCall] Calling create-call function...');
             const execution = await functions.createExecution(
                 'create-call',
                 JSON.stringify({
@@ -139,6 +142,8 @@ export function useCall(): UseCallReturn {
                     callType
                 })
             );
+
+            console.log('[useCall] Function execution result:', execution.status, execution.responseBody);
 
             if (execution.status === 'failed') {
                 throw new Error('Function execution failed: ' + (execution.responseBody || execution.errors || 'Unknown error'));
@@ -160,8 +165,20 @@ export function useCall(): UseCallReturn {
             }
 
             const call = response.data;
+            console.log('[useCall] Call created successfully:', call);
 
-            setCurrentCall(call as unknown as ActiveCall);
+            // IMPORTANT: Set current call IMMEDIATELY so UI shows calling state
+            const activeCall: ActiveCall = {
+                $id: call.$id,
+                callerId: call.callerId,
+                receiverId: call.receiverId,
+                channelId: call.channelId,
+                callType: call.callType,
+                status: call.status || 'ringing',
+            };
+
+            console.log('[useCall] Setting currentCall to:', activeCall);
+            setCurrentCall(activeCall);
 
             // Set timeout for missed call (30 seconds)
             callTimeoutRef.current = setTimeout(async () => {
@@ -190,9 +207,11 @@ export function useCall(): UseCallReturn {
             }, 30000);
 
             const callTargetUserId = friendId;
+            console.log('[useCall] Joining WebRTC channel...');
             await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId, isInitiator: true });
+            console.log('[useCall] WebRTC joined successfully');
         } catch (err) {
-            console.error('Failed to start call:', err);
+            console.error('[useCall] Failed to start call:', err);
             throw err;
         }
     }, [user?.$id, webRTC, createCallLogMessage]);
