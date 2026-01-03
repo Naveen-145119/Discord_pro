@@ -109,21 +109,48 @@ export function ScreenShareCard({
                 className="w-full h-full object-contain"
             />
 
-            {/* LIVE Badge */}
-            <div className="absolute top-3 left-3 flex items-center gap-2">
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-red-600 rounded text-white text-xs font-bold">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                    LIVE
-                </div>
-                {resolutionText && (
-                    <div className="px-2 py-1 bg-black/60 rounded text-white text-xs">
-                        {resolutionText} {Math.round(streamInfo.fps)}FPS
+            {/* Header overlay - Discord style */}
+            {isFocused ? (
+                // Focused view: Name at top-left, badges at top-right (always visible)
+                <>
+                    {/* Top-left: Sharer name with screen icon */}
+                    <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-black/60 rounded-lg">
+                        <MonitorUp size={16} className="text-white" />
+                        <span className="text-white text-sm font-semibold">
+                            {sharerName}
+                        </span>
                     </div>
-                )}
-            </div>
 
-            {/* Controls */}
-            <div className={`absolute top-3 right-3 flex items-center gap-2 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                    {/* Top-right: Resolution + LIVE badges */}
+                    <div className="absolute top-4 right-4 flex items-center gap-2">
+                        {resolutionText && (
+                            <div className="px-2 py-1 bg-black/60 rounded text-white text-xs font-medium">
+                                {resolutionText} {Math.round(streamInfo.fps)}FPS
+                            </div>
+                        )}
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-red-600 rounded text-white text-xs font-bold">
+                            LIVE
+                        </div>
+                    </div>
+                </>
+            ) : (
+                // Grid view: LIVE badge at top-right, name pill at bottom-left
+                <>
+                    <div className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 bg-red-600 rounded text-white text-xs font-bold">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                        LIVE
+                    </div>
+                    <div className="absolute bottom-2 left-2 flex items-center gap-2 px-2 py-1 bg-black/60 rounded">
+                        <MonitorUp size={12} className="text-white" />
+                        <span className="text-white text-xs font-medium truncate max-w-[100px]">
+                            {sharerName.replace("'s screen", "")}
+                        </span>
+                    </div>
+                </>
+            )}
+
+            {/* Controls - show on hover */}
+            <div className={`absolute top-3 right-3 flex items-center gap-2 transition-opacity ${!isFocused && isHovered ? 'opacity-100' : isFocused ? 'opacity-0' : 'opacity-0'}`}>
                 <button
                     onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
                     className="p-2 rounded-lg bg-black/60 hover:bg-black/80 text-white transition-colors"
@@ -140,14 +167,6 @@ export function ScreenShareCard({
                         <X size={18} />
                     </button>
                 )}
-            </div>
-
-            {/* Sharer info */}
-            <div className={`absolute bottom-3 left-3 flex items-center gap-2 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                <MonitorUp size={16} className="text-green-400" />
-                <span className="text-white text-sm font-medium">
-                    {isLocal ? 'You are sharing' : `${sharerName} is sharing`}
-                </span>
             </div>
         </div>
     );

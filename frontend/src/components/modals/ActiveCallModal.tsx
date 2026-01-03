@@ -621,18 +621,24 @@ export function ActiveCallModal({
             {/* Control Bar - Always visible, floating at bottom. In fullscreen with screen share, show on hover */}
             <div className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1e1f22] via-[#1e1f22]/95 to-transparent ${isFullscreen && isRemoteScreenShare ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : ''
                 }`}>
-                <div className="flex items-center justify-center gap-3">
-                    {/* Mute */}
-                    <button
-                        onClick={onToggleMute}
-                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isMuted
-                            ? 'bg-red-500 text-white hover:bg-red-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                            }`}
-                        title={isMuted ? 'Unmute' : 'Mute'}
-                    >
-                        {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-                    </button>
+                <div className="flex items-center justify-center gap-2">
+                    {/* Mute with dropdown indicator */}
+                    <div className="relative group">
+                        <button
+                            onClick={onToggleMute}
+                            className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isMuted
+                                ? 'bg-red-500 text-white hover:bg-red-600'
+                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                                }`}
+                            title={isMuted ? 'Unmute' : 'Mute'}
+                        >
+                            {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                        </button>
+                        {/* Dropdown hint chevron */}
+                        <div className="absolute -right-1 bottom-0 w-4 h-4 bg-[#3b3d44] rounded-full flex items-center justify-center text-white text-[8px] group-hover:bg-[#4b4d54]">
+                            ▼
+                        </div>
+                    </div>
 
                     {/* Device Settings */}
                     <DeviceSettingsPopover />
@@ -649,39 +655,45 @@ export function ActiveCallModal({
                         {isDeafened ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
                     </button>
 
-                    {/* Video */}
-                    <button
-                        onClick={onToggleVideo}
-                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${!isVideoOn
-                            ? 'bg-red-500 text-white hover:bg-red-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                            }`}
-                        title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
-                    >
-                        {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
-                    </button>
-
-                    {/* Screen Share */}
-                    <button
-                        onClick={onToggleScreenShare}
-                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isScreenSharing
-                            ? 'bg-green-500 text-white hover:bg-green-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                            }`}
-                        title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
-                    >
-                        <MonitorUp size={22} />
-                    </button>
-
-                    {/* End Call */}
-                    <button
-                        onClick={onEndCall}
-                        className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105 shadow-lg"
-                        title="End Call"
-                    >
-                        <Phone size={22} className="rotate-[135deg]" />
-                    </button>
+                    {/* Video with dropdown indicator - GREEN when ON (Discord style) */}
+                    <div className="relative group">
+                        <button
+                            onClick={onToggleVideo}
+                            className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isVideoOn
+                                ? 'bg-green-500 text-white hover:bg-green-600'
+                                : 'bg-red-500 text-white hover:bg-red-600'
+                                }`}
+                            title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
+                        >
+                            {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
+                        </button>
+                        {/* Dropdown hint chevron */}
+                        <div className={`absolute -right-1 bottom-0 w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] ${isVideoOn ? 'bg-green-600' : 'bg-red-600'}`}>
+                            ▼
+                        </div>
+                    </div>
                 </div>
+
+                {/* Screen Share */}
+                <button
+                    onClick={onToggleScreenShare}
+                    className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isScreenSharing
+                        ? 'bg-green-500 text-white hover:bg-green-600'
+                        : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                        }`}
+                    title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
+                >
+                    <MonitorUp size={22} />
+                </button>
+
+                {/* End Call */}
+                <button
+                    onClick={onEndCall}
+                    className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105 shadow-lg"
+                    title="End Call"
+                >
+                    <Phone size={22} className="rotate-[135deg]" />
+                </button>
             </div>
         </div>
     );

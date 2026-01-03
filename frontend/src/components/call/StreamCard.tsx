@@ -8,7 +8,7 @@
  */
 
 import { useRef, useEffect, useState } from 'react';
-import { MicOff, Volume2, Maximize2, Pin } from 'lucide-react';
+import { MicOff, Maximize2, Pin } from 'lucide-react';
 
 // Stream types - the different entities that can exist
 export type StreamType = 'camera' | 'screen-share' | 'audio-only';
@@ -85,8 +85,8 @@ export function StreamCard({
         focused: 'w-full max-w-[900px] aspect-video',
     };
 
-    // Speaking indicator ring
-    const speakingRing = isSpeaking ? 'ring-2 ring-green-500 ring-opacity-75' : '';
+    // Speaking indicator ring - Discord style green glow
+    const speakingRing = isSpeaking ? 'ring-4 ring-green-500/70 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : '';
 
     // Get initial for avatar fallback
     const initial = displayName.charAt(0).toUpperCase();
@@ -122,16 +122,21 @@ export function StreamCard({
                     `}
                 />
             ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+                // Discord-style: Solid background color with large centered circular avatar
+                <div className="absolute inset-0 flex items-center justify-center bg-[#2b2d31]">
                     {avatarUrl ? (
-                        <img src={avatarUrl} alt={displayName} className="w-20 h-20 rounded-full object-cover" />
+                        <img
+                            src={avatarUrl}
+                            alt={displayName}
+                            className={`rounded-full object-cover border-4 border-[#1e1f22] ${size === 'thumbnail' ? 'w-12 h-12' : size === 'focused' ? 'w-32 h-32' : 'w-24 h-24'}`}
+                        />
                     ) : (
+                        // Discord-style avatar with solid color background
                         <div className={`
                             flex items-center justify-center rounded-full
-                            bg-gradient-to-br from-indigo-500 to-purple-600
-                            ${size === 'thumbnail' ? 'w-10 h-10 text-lg' : 'w-20 h-20 text-3xl'}
+                            bg-discord-primary border-4 border-[#1e1f22]
+                            ${size === 'thumbnail' ? 'w-12 h-12 text-lg' : size === 'focused' ? 'w-32 h-32 text-5xl' : 'w-24 h-24 text-4xl'}
                             font-bold text-white
-                            ${isSpeaking ? 'animate-pulse' : ''}
                         `}>
                             {initial}
                         </div>
@@ -142,22 +147,15 @@ export function StreamCard({
             {/* Gradient overlay for text readability */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
 
-            {/* Name and status bar */}
-            <div className="absolute bottom-0 left-0 right-0 p-2 flex items-center gap-2">
-                <span className="text-white text-sm font-medium truncate">
-                    {displayName}
-                    {isLocal && <span className="text-gray-400 ml-1">(You)</span>}
-                </span>
-
-                <div className="flex items-center gap-1 ml-auto">
+            {/* Discord-style name pill - bottom left */}
+            <div className="absolute bottom-2 left-2">
+                <div className="px-2 py-1 rounded bg-black/60 flex items-center gap-2">
+                    <span className="text-white text-sm font-medium truncate max-w-[120px]">
+                        {displayName}
+                    </span>
                     {isMuted && (
-                        <div className="p-1 rounded-full bg-red-500/80">
-                            <MicOff size={12} className="text-white" />
-                        </div>
-                    )}
-                    {isSpeaking && !isMuted && (
-                        <div className="p-1 rounded-full bg-green-500/80 animate-pulse">
-                            <Volume2 size={12} className="text-white" />
+                        <div className="p-0.5 rounded-full bg-red-500">
+                            <MicOff size={10} className="text-white" />
                         </div>
                     )}
                 </div>
