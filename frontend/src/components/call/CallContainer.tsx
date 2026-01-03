@@ -12,6 +12,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ParticipantCard } from './ParticipantCard';
 import { ScreenShareCard } from './ScreenShareCard';
 import { ThumbnailStrip } from './ThumbnailStrip';
+import { MonitorUp } from 'lucide-react';
 import type { CallParticipant } from '@/lib/webrtc';
 
 export interface CallContainerProps {
@@ -48,7 +49,7 @@ export function CallContainer({
 
     // Collect all screen shares
     const screenShares = useMemo(() => {
-        const shares: Array<{ odId: string; displayName: string; stream: MediaStream }> = [];
+        const shares: Array<{ odId: string; displayName: string; stream: MediaStream; isLocal: boolean }> = [];
 
         // Local screen share
         if (isLocalScreenSharing && localScreenStream) {
@@ -56,6 +57,7 @@ export function CallContainer({
                 odId: 'local-screen',
                 displayName: `${localDisplayName}'s screen`,
                 stream: localScreenStream,
+                isLocal: true,
             });
         }
 
@@ -66,6 +68,7 @@ export function CallContainer({
                     odId: `${p.odId}-screen`,
                     displayName: `${p.displayName}'s screen`,
                     stream: p.screenStream,
+                    isLocal: false,
                 });
             }
         });
@@ -106,12 +109,15 @@ export function CallContainer({
     const focusedParticipant = !focusedScreenShare ? allParticipants.find(p => p.odId === focusedId) : null;
     const isGridView = !focusedId;
 
-    // Grid layout for multiple participants
+    // Number of cards in grid (participants + screen shares)
+    const gridItemCount = allParticipants.length + screenShares.length;
+
+    // Grid layout for multiple participants - Discord style
     const getGridCols = (count: number) => {
         if (count <= 1) return 'grid-cols-1';
         if (count <= 2) return 'grid-cols-2';
         if (count <= 4) return 'grid-cols-2';
-        if (count <= 9) return 'grid-cols-3';
+        if (count <= 6) return 'grid-cols-3';
         return 'grid-cols-4';
     };
 
@@ -119,20 +125,20 @@ export function CallContainer({
         <div className="relative w-full h-full bg-[#1e1f22] overflow-hidden">
             {/* Focused View */}
             {focusedScreenShare && (
-                <div className="w-full h-full flex items-center justify-center">
+                <div className="w-full h-full flex items-center justify-center p-4 pb-32">
                     <ScreenShareCard
                         stream={focusedScreenShare.stream}
                         sharerId={focusedScreenShare.odId}
                         sharerName={focusedScreenShare.displayName}
                         isFocused
-                        isLocal={focusedScreenShare.odId === 'local-screen'}
-                        onStopSharing={focusedScreenShare.odId === 'local-screen' ? onStopScreenShare : undefined}
+                        isLocal={focusedScreenShare.isLocal}
+                        onStopSharing={focusedScreenShare.isLocal ? onStopScreenShare : undefined}
                     />
                 </div>
             )}
 
             {focusedParticipant && !focusedScreenShare && (
-                <div className="w-full h-full flex items-center justify-center p-4">
+                <div className="w-full h-full flex items-center justify-center p-4 pb-32">
                     <ParticipantCard
                         odId={focusedParticipant.odId}
                         displayName={focusedParticipant.displayName}
@@ -148,14 +154,50 @@ export function CallContainer({
                 </div>
             )}
 
-            {/* Grid View */}
+            {/* Grid View - Discord Style */}
             {isGridView && (
-                <div className={`grid ${getGridCols(allParticipants.length)} gap-2 p-4 h-full`}>
+                <div className={`grid ${getGridCols(gridItemCount)} gap-3 p-4 h-full place-items-center`}>
+                    {/* Screen shares in grid with "Watch Stream" button */}
+                    {screenShares.map(share => (
+                        <div
+                            key={share.odId}
+                            onClick={() => handleFocus(share.odId)}
+                            className="relative cursor-pointer w-full max-w-[400px] aspect-video rounded-xl overflow-hidden bg-[#2b2d31] group"
+                        >
+                            {/* Video preview */}
+                            <video
+                                autoPlay
+                                muted
+                                playsInline
+                                ref={el => {
+                                    if (el) el.srcObject = share.stream;
+                                }}
+                                className="w-full h-full object-contain"
+                            />
+                            {/* Name overlay at bottom */}
+                            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
+                                <div className="flex items-center gap-2 text-white text-sm">
+                                    <MonitorUp size={14} className="text-green-400" />
+                                    <span className="truncate">{share.displayName.replace("'s screen", "")}</span>
+                                </div>
+                            </div>
+                            {/* Watch Stream button - centered */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <button className="px-4 py-2 bg-[#2b2d31] text-white font-medium rounded-md hover:bg-[#3b3d44] transition-colors shadow-lg">
+                                    Watch Stream
+                                </button>
+                            </div>
+                            {/* Hover border */}
+                            <div className="absolute inset-0 border-2 border-transparent group-hover:border-discord-primary rounded-xl transition-colors" />
+                        </div>
+                    ))}
+
+                    {/* Participant cards */}
                     {allParticipants.map(participant => (
                         <div
                             key={participant.odId}
                             onClick={() => handleFocus(participant.odId)}
-                            className="cursor-pointer"
+                            className="cursor-pointer w-full max-w-[400px]"
                         >
                             <ParticipantCard
                                 odId={participant.odId}
@@ -186,3 +228,4 @@ export function CallContainer({
         </div>
     );
 }
+

@@ -78,11 +78,11 @@ export function StreamCard({
     // NOTE: Audio playback is handled by ActiveCallModal, not StreamCard
     // This prevents duplicate audio and allows centralized volume control
 
-    // Size-based styling
+    // Size-based styling - Discord style with aspect ratio
     const sizeClasses = {
-        thumbnail: 'w-32 h-24',
-        medium: 'w-64 h-48',
-        focused: 'w-full h-full',
+        thumbnail: 'w-[140px] h-[100px]',
+        medium: 'w-full aspect-video',
+        focused: 'w-full max-w-[900px] aspect-video',
     };
 
     // Speaking indicator ring
