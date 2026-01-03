@@ -34,27 +34,46 @@ export function CallProvider({ children }: CallProviderProps) {
     const [callFriend, setCallFriend] = useState<User | null>(null);
     const [isMinimized, setIsMinimized] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
+    const [isStartingCall, setIsStartingCall] = useState(false); // Track if we're initiating a call
     const callStartTimeRef = useState<number | null>(null);
 
     // Debug logging
-    console.log('[CallProvider] Render - currentCall:', call.currentCall?.$id, 'isCalling:', call.isCalling, 'callFriend:', callFriend?.displayName);
+    console.log('[CallProvider] Render - currentCall:', call.currentCall?.$id, 'isCalling:', call.isCalling, 'isStartingCall:', isStartingCall, 'callFriend:', callFriend?.displayName);
 
     const startCallWithFriend = async (friendId: string, channelId: string, callType: CallType, friend: User) => {
         console.log('[CallProvider] startCallWithFriend called:', { friendId, channelId, callType, friend: friend.displayName });
+
+        // Set these IMMEDIATELY so UI shows right away
         setCallFriend(friend);
-        setIsMinimized(false); // Always start in full view
-        await call.startCall(friendId, channelId, callType);
-        console.log('[CallProvider] startCall completed, currentCall should now be set');
+        setIsMinimized(false);
+        setIsStartingCall(true); // Show calling UI immediately!
+
+        try {
+            await call.startCall(friendId, channelId, callType);
+            console.log('[CallProvider] startCall completed');
+        } catch (err) {
+            console.error('[CallProvider] startCall failed:', err);
+            // Reset on error
+            setIsStartingCall(false);
+            setCallFriend(null);
+        }
     };
 
+    // Clear isStartingCall when we have a real currentCall
     useEffect(() => {
-        if (!call.currentCall) {
+        if (call.currentCall) {
+            setIsStartingCall(false);
+        }
+    }, [call.currentCall]);
+
+    useEffect(() => {
+        if (!call.currentCall && !isStartingCall) {
             setCallFriend(null);
             setIsMinimized(false);
             setCallDuration(0);
             callStartTimeRef[1](null);
         }
-    }, [call.currentCall, callStartTimeRef]);
+    }, [call.currentCall, isStartingCall, callStartTimeRef]);
 
     // Call duration timer
     useEffect(() => {
@@ -108,11 +127,12 @@ export function CallProvider({ children }: CallProviderProps) {
 
             {/* Active Call - Full Modal or Mini Player */}
             <AnimatePresence mode="wait">
-                {call.currentCall && currentFriend && (
+                {/* Show when we have currentCall OR when we're starting a call */}
+                {((call.currentCall && currentFriend) || (isStartingCall && callFriend)) && (
                     isMinimized ? (
                         <MiniPlayer
                             key="mini-player"
-                            friend={currentFriend}
+                            friend={currentFriend || callFriend!}
                             remoteStream={call.remoteStream}
                             localStream={call.localStream}
                             isMuted={call.isMuted}
@@ -126,8 +146,15 @@ export function CallProvider({ children }: CallProviderProps) {
                     ) : (
                         <ActiveCallModal
                             key="active-call"
-                            call={call.currentCall}
-                            friend={currentFriend}
+                            call={call.currentCall || {
+                                $id: 'starting',
+                                callerId: '',
+                                receiverId: '',
+                                channelId: '',
+                                callType: 'voice',
+                                status: 'ringing',
+                            }}
+                            friend={currentFriend || callFriend!}
                             isMuted={call.isMuted}
                             isDeafened={call.isDeafened}
                             isVideoOn={call.isVideoOn}
@@ -139,7 +166,7 @@ export function CallProvider({ children }: CallProviderProps) {
                             remoteStreamVersion={call.remoteStreamVersion}
                             participants={call.participants}
                             remoteParticipant={call.remoteParticipant}
-                            isCalling={call.isCalling}
+                            isCalling={isStartingCall || call.isCalling}
                             onEndCall={call.endCall}
                             onToggleMute={call.toggleMute}
                             onToggleDeafen={call.toggleDeafen}

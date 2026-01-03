@@ -89,6 +89,8 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
     }, [channels]);
 
     const handleChannelClick = (channel: Channel) => {
+        // Mark channel as read when clicking
+        useUnreadStore.getState().markAsRead(channel.$id);
         navigate(`/servers/${server.$id}/channels/${channel.$id}`);
     };
 

@@ -2,6 +2,7 @@ import { useMemo, useRef, useEffect } from 'react';
 import { format, isToday, isYesterday, isSameDay, differenceInMinutes } from 'date-fns';
 import type { Message, User } from '@/types';
 import { MessageItem } from './MessageItem';
+import { SoundManager } from '@/lib/soundManager';
 
 // Time threshold for grouping messages (in minutes)
 const GROUPING_TIME_THRESHOLD = 5;
@@ -100,16 +101,26 @@ export function MessageList({
 }: MessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const endRef = useRef<HTMLDivElement>(null);
+    const prevMessageCountRef = useRef(messages.length);
 
     // Process messages for grouping
     const processedMessages = useMemo(() => processMessages(messages), [messages]);
 
-    // Auto-scroll to bottom on new messages
+    // Auto-scroll to bottom on new messages + play sound
     useEffect(() => {
         if (endRef.current && messages.length > 0) {
             endRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages.length]);
+
+        // Play sound when a new message arrives from another user
+        if (messages.length > prevMessageCountRef.current) {
+            const newestMessage = messages[0]; // Messages are newest-first
+            if (newestMessage && newestMessage.authorId !== currentUserId) {
+                SoundManager.playMessage();
+            }
+        }
+        prevMessageCountRef.current = messages.length;
+    }, [messages.length, messages, currentUserId]);
 
     // Handle scroll for infinite loading
     const handleScroll = () => {
