@@ -332,8 +332,34 @@ export function useWebRTC({
                 const updated = new Map(prev);
                 const existing = updated.get(peerId);
 
+                // DETECT SCREEN SHARE - must be inside setParticipants to access current state (prev)
+                // Strategy: In DM calls, initial connection is audio-only.
+                // If participant already exists (we have audio) and we receive new VIDEO = screen share
+                const hasExistingParticipant = prev.has(peerId);
+                const isScreenShareFromRenegotiation = track.kind === 'video' && isRenegotiation && hasExistingParticipant;
+
+                const isScreenShare = track.kind === 'video' && (
+                    // Local detection (works when sharing) - displaySurface available locally
+                    trackSettings.displaySurface === 'monitor' ||
+                    trackSettings.displaySurface === 'window' ||
+                    trackSettings.displaySurface === 'browser' ||
+                    // Remote detection: renegotiation + existing participant + video = screen share
+                    isScreenShareFromRenegotiation ||
+                    // Fallback: large dimensions or screen in label
+                    (trackSettings.width && trackSettings.width >= 1920) ||
+                    track.label.toLowerCase().includes('screen')
+                );
+
+                console.log('[WebRTC] Screen share detection (inside setParticipants):', {
+                    isRenegotiation,
+                    hasExistingParticipant,
+                    trackKind: track.kind,
+                    isScreenShareFromRenegotiation,
+                    result: isScreenShare
+                });
+
                 // For screen share tracks, create/update screenStream separately
-                if (isScreenShareTrack && track.kind === 'video') {
+                if (isScreenShare && track.kind === 'video') {
                     console.log('[WebRTC] 📺 Storing screen share track for peer:', peerId);
                     const screenMediaStream = new MediaStream();
                     screenMediaStream.addTrack(track);

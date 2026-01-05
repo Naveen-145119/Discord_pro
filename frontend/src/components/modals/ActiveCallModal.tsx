@@ -13,16 +13,22 @@ import {
     Signal,
     Clock,
     Headphones,
-    HeadphoneOff
+    HeadphoneOff,
+    MessageSquare,
+    Send,
+    X
 } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
 import { CallContainer, DeviceSettingsPopover } from '@/components/call';
+import { MessageList } from '@/components/chat';
+import { useMessageStore } from '@/stores/messageStore';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
     friend: User;
+    currentUserId: string;
     isMuted: boolean;
     isDeafened: boolean;
     isVideoOn: boolean;
@@ -44,8 +50,9 @@ interface ActiveCallModalProps {
 }
 
 export function ActiveCallModal({
-    call: _call,
+    call,
     friend,
+    currentUserId,
     isMuted,
     isDeafened,
     isVideoOn,
@@ -82,6 +89,22 @@ export function ActiveCallModal({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
     const [connectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
+
+    // Chat state
+    const [showChat, setShowChat] = useState(false);
+    const [messageInput, setMessageInput] = useState('');
+    const [isSendingMessage, setIsSendingMessage] = useState(false);
+
+    // Message store
+    const { messages, fetchMessages, sendMessage, isLoading: isLoadingMessages } = useMessageStore();
+    const channelId = call.channelId;
+
+    // Fetch messages when chat is opened
+    useEffect(() => {
+        if (showChat && channelId) {
+            fetchMessages(channelId);
+        }
+    }, [showChat, channelId, fetchMessages]);
 
     // Convert participants Map to Array for CallContainer
     const participantsArray = useMemo(() => Array.from(participants.values()), [participants]);
@@ -454,6 +477,22 @@ export function ActiveCallModal({
         }
     };
 
+    // Handle sending chat message
+    const handleSendMessage = useCallback(async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!messageInput.trim() || isSendingMessage || !channelId || !currentUserId) return;
+
+        setIsSendingMessage(true);
+        try {
+            await sendMessage(channelId, currentUserId, messageInput.trim());
+            setMessageInput('');
+        } catch (error) {
+            console.error('Failed to send message:', error);
+        } finally {
+            setIsSendingMessage(false);
+        }
+    }, [messageInput, isSendingMessage, channelId, currentUserId, sendMessage]);
+
     const hasRemoteVideo = remoteStream?.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
 
     // Detect if remote video is likely a screen share (check video track settings)
@@ -686,6 +725,18 @@ export function ActiveCallModal({
                     <MonitorUp size={22} />
                 </button>
 
+                {/* Chat Toggle */}
+                <button
+                    onClick={() => setShowChat(!showChat)}
+                    className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${showChat
+                        ? 'bg-discord-primary text-white hover:bg-discord-primary/80'
+                        : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                        }`}
+                    title={showChat ? 'Hide Chat' : 'Show Chat'}
+                >
+                    <MessageSquare size={22} />
+                </button>
+
                 {/* End Call */}
                 <button
                     onClick={onEndCall}
@@ -695,6 +746,53 @@ export function ActiveCallModal({
                     <Phone size={22} className="rotate-[135deg]" />
                 </button>
             </div>
+
+            {/* Chat Section - Collapsible */}
+            {showChat && (
+                <div className="h-[40%] flex flex-col bg-[#2b2d31] border-t border-[#1e1f22]">
+                    {/* Chat Header */}
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-[#1e1f22]">
+                        <span className="text-sm font-medium text-white">Chat with {friend.displayName}</span>
+                        <button
+                            onClick={() => setShowChat(false)}
+                            className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white"
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+
+                    {/* Message List */}
+                    <div className="flex-1 overflow-hidden">
+                        <MessageList
+                            messages={messages}
+                            currentUserId={currentUserId}
+                            friend={friend}
+                            isLoading={isLoadingMessages}
+                        />
+                    </div>
+
+                    {/* Message Input */}
+                    <form onSubmit={handleSendMessage} className="p-3 border-t border-[#1e1f22]">
+                        <div className="flex items-center gap-2 bg-[#383a40] rounded-lg px-3 py-2">
+                            <input
+                                type="text"
+                                value={messageInput}
+                                onChange={(e) => setMessageInput(e.target.value)}
+                                placeholder={`Message @${friend.displayName}`}
+                                className="flex-1 bg-transparent text-white placeholder:text-gray-500 focus:outline-none text-sm"
+                                disabled={isSendingMessage}
+                            />
+                            <button
+                                type="submit"
+                                disabled={!messageInput.trim() || isSendingMessage}
+                                className="p-1.5 text-discord-primary hover:text-discord-primary/80 disabled:text-gray-500 disabled:cursor-not-allowed"
+                            >
+                                <Send size={18} />
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
         </div>
     );
 }

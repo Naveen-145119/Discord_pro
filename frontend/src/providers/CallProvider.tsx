@@ -4,6 +4,7 @@ import { useCall, type CallType, type ActiveCall } from '@/hooks/useCall';
 import { IncomingCallModal } from '@/components/modals/IncomingCallModal';
 import { ActiveCallModal } from '@/components/modals/ActiveCallModal';
 import { MiniPlayer } from '@/components/call';
+import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
 interface CallContextType {
@@ -31,6 +32,7 @@ interface CallProviderProps {
 
 export function CallProvider({ children }: CallProviderProps) {
     const call = useCall();
+    const { user: authUser } = useAuthStore();
     const [callFriend, setCallFriend] = useState<User | null>(null);
     const [isMinimized, setIsMinimized] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
@@ -155,6 +157,7 @@ export function CallProvider({ children }: CallProviderProps) {
                                 status: 'ringing',
                             }}
                             friend={currentFriend || callFriend!}
+                            currentUserId={authUser?.$id || ''}
                             isMuted={call.isMuted}
                             isDeafened={call.isDeafened}
                             isVideoOn={call.isVideoOn}
