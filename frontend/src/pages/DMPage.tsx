@@ -21,6 +21,7 @@ import { useDMs } from '@/hooks/useDMs';
 import { useCallContext } from '@/providers/CallProvider';
 import { MessageList, ReplyBar, TypingIndicator } from '@/components/chat';
 import { ProfilePopover } from '@/components/modals/ProfilePopover';
+import { FriendsSidebar } from '@/components/layout/FriendsSidebar';
 import type { Message as MessageType, User } from '@/types';
 import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 
@@ -302,407 +303,410 @@ export function DMPage() {
     }
 
     return (
-        <div className="flex-1 flex flex-col bg-background-primary">
-            <div className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low">
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => navigate('/')}
-                        className="text-interactive-normal hover:text-interactive-hover md:hidden"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
-
-                    <div className="relative">
-                        <div className="w-8 h-8 rounded-full bg-discord-primary flex items-center justify-center">
-                            {friend.avatarUrl ? (
-                                <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                                <span className="text-sm font-medium text-white">
-                                    {friend.displayName?.charAt(0) || '?'}
-                                </span>
-                            )}
-                        </div>
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background-primary ${getStatusColor(friend.status)}`} />
-                    </div>
-
-                    <div>
-                        <span className="font-semibold text-text-heading">
-                            {friend.displayName}
-                        </span>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => handleStartCall('voice')}
-                        className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
-                        title="Start Voice Call"
-                    >
-                        <Phone size={20} />
-                    </button>
-                    <button
-                        onClick={() => handleStartCall('video')}
-                        className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
-                        title="Start Video Call"
-                    >
-                        <Video size={20} />
-                    </button>
-                    <button
-                        className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
-                        title="More Options"
-                    >
-                        <MoreVertical size={20} />
-                    </button>
-                </div>
-            </div>
-
-            <div
-                ref={messagesContainerRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-y-auto flex flex-col-reverse"
-            >
-                <div ref={messagesEndRef} />
-
-                {messages.length === 0 && !isLoading ? (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8">
-                        <div className="w-20 h-20 rounded-full bg-discord-primary flex items-center justify-center mb-4">
-                            {friend.avatarUrl ? (
-                                <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                                <span className="text-2xl font-medium text-white">
-                                    {friend.displayName?.charAt(0) || '?'}
-                                </span>
-                            )}
-                        </div>
-                        <h3 className="text-2xl font-bold text-text-heading mb-2">
-                            {friend.displayName}
-                        </h3>
-                        <p className="text-text-muted text-center max-w-md mb-4">
-                            This is the beginning of your direct message history with <strong>{friend.displayName}</strong>.
-                        </p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => handleStartCall('voice')}
-                                className="flex items-center gap-2 px-4 py-2 bg-background-secondary hover:bg-background-modifier-hover rounded-md text-text-normal transition-colors"
-                            >
-                                <Phone size={16} />
-                                Voice Call
-                            </button>
-                            <button
-                                onClick={() => handleStartCall('video')}
-                                className="flex items-center gap-2 px-4 py-2 bg-background-secondary hover:bg-background-modifier-hover rounded-md text-text-normal transition-colors"
-                            >
-                                <Video size={16} />
-                                Video Call
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <MessageList
-                        messages={messages}
-                        currentUserId={user?.$id || ''}
-                        currentUser={user ? { displayName: user.displayName, avatarUrl: user.avatarUrl } : undefined}
-                        friend={friend}
-                        onReply={handleReply}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                        onStartCall={handleStartCall}
-                        isLoading={isLoading}
-                        hasMore={hasMore}
-                        onLoadMore={() => {
-                            const lastMessage = messages[messages.length - 1];
-                            if (lastMessage) {
-                                fetchMessages(channelId!, lastMessage.$id);
-                            }
-                        }}
-                        onProfileClick={(e, clickedUser) => {
-                            setSelectedProfile({
-                                user: {
-                                    displayName: clickedUser.displayName,
-                                    avatarUrl: clickedUser.avatarUrl,
-                                    status: clickedUser.status
-                                },
-                                position: { x: e.clientX, y: e.clientY },
-                                isCurrentUser: clickedUser.displayName === user?.displayName
-                            });
-                        }}
-                    />
-                )}
-            </div>
-
-            <div className="px-4 pb-6 relative">
-                {/* Typing Indicator */}
-                <TypingIndicator usernames={typingUsernames} />
-
-                {/* Hidden file input */}
-                <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileSelect}
-                    accept="image/*,video/*,.pdf,.doc,.docx,.txt"
-                    className="hidden"
-                />
-
-                {/* Reply Bar */}
-                {replyingTo && friend && (
-                    <ReplyBar
-                        message={replyingTo}
-                        friend={friend}
-                        currentUserId={user?.$id || ''}
-                        currentUser={user ? { displayName: user.displayName } : undefined}
-                        onCancel={clearReplyingTo}
-                    />
-                )}
-
-                {/* File preview */}
-                {selectedFile && (
-                    <div className="mb-2 p-3 bg-background-secondary rounded-lg">
-                        <div className="flex items-start gap-3">
-                            {filePreview ? (
-                                <img src={filePreview} alt="Preview" className="w-20 h-20 object-cover rounded" />
-                            ) : (
-                                <div className="w-20 h-20 bg-background-tertiary rounded flex items-center justify-center">
-                                    <FileText size={32} className="text-text-muted" />
-                                </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                                <p className="text-text-normal font-medium truncate">{selectedFile.name}</p>
-                                <p className="text-xs text-text-muted">
-                                    {(selectedFile.size / 1024).toFixed(1)} KB
-                                </p>
-                            </div>
-                            <button
-                                onClick={clearFileSelection}
-                                className="p-1 text-text-muted hover:text-text-normal hover:bg-background-modifier-hover rounded"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                <div className={`flex items-center gap-2 bg-background-tertiary px-4 relative ${replyingTo ? 'rounded-b-lg' : 'rounded-lg'}`}>
-                    {/* Attachment Menu */}
-                    <div className="relative" ref={attachmentMenuRef}>
+        <>
+            <FriendsSidebar />
+            <div className="flex-1 flex flex-col bg-background-primary min-w-0">
+                <div className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low">
+                    <div className="flex items-center gap-3">
                         <button
-                            onClick={() => {
-                                setShowAttachmentMenu(!showAttachmentMenu);
-                                setShowEmojiPicker(false);
-                                setShowGifPicker(false);
+                            onClick={() => navigate('/')}
+                            className="text-interactive-normal hover:text-interactive-hover md:hidden"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+
+                        <div className="relative">
+                            <div className="w-8 h-8 rounded-full bg-discord-primary flex items-center justify-center">
+                                {friend.avatarUrl ? (
+                                    <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
+                                ) : (
+                                    <span className="text-sm font-medium text-white">
+                                        {friend.displayName?.charAt(0) || '?'}
+                                    </span>
+                                )}
+                            </div>
+                            <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background-primary ${getStatusColor(friend.status)}`} />
+                        </div>
+
+                        <div>
+                            <span className="font-semibold text-text-heading">
+                                {friend.displayName}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => handleStartCall('voice')}
+                            className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
+                            title="Start Voice Call"
+                        >
+                            <Phone size={20} />
+                        </button>
+                        <button
+                            onClick={() => handleStartCall('video')}
+                            className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
+                            title="Start Video Call"
+                        >
+                            <Video size={20} />
+                        </button>
+                        <button
+                            className="p-2 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded-md transition-colors"
+                            title="More Options"
+                        >
+                            <MoreVertical size={20} />
+                        </button>
+                    </div>
+                </div>
+
+                <div
+                    ref={messagesContainerRef}
+                    onScroll={handleScroll}
+                    className="flex-1 overflow-y-auto flex flex-col-reverse"
+                >
+                    <div ref={messagesEndRef} />
+
+                    {messages.length === 0 && !isLoading ? (
+                        <div className="flex-1 flex flex-col items-center justify-center p-8">
+                            <div className="w-20 h-20 rounded-full bg-discord-primary flex items-center justify-center mb-4">
+                                {friend.avatarUrl ? (
+                                    <img src={friend.avatarUrl} alt="" className="w-full h-full rounded-full object-cover" />
+                                ) : (
+                                    <span className="text-2xl font-medium text-white">
+                                        {friend.displayName?.charAt(0) || '?'}
+                                    </span>
+                                )}
+                            </div>
+                            <h3 className="text-2xl font-bold text-text-heading mb-2">
+                                {friend.displayName}
+                            </h3>
+                            <p className="text-text-muted text-center max-w-md mb-4">
+                                This is the beginning of your direct message history with <strong>{friend.displayName}</strong>.
+                            </p>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => handleStartCall('voice')}
+                                    className="flex items-center gap-2 px-4 py-2 bg-background-secondary hover:bg-background-modifier-hover rounded-md text-text-normal transition-colors"
+                                >
+                                    <Phone size={16} />
+                                    Voice Call
+                                </button>
+                                <button
+                                    onClick={() => handleStartCall('video')}
+                                    className="flex items-center gap-2 px-4 py-2 bg-background-secondary hover:bg-background-modifier-hover rounded-md text-text-normal transition-colors"
+                                >
+                                    <Video size={16} />
+                                    Video Call
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <MessageList
+                            messages={messages}
+                            currentUserId={user?.$id || ''}
+                            currentUser={user ? { displayName: user.displayName, avatarUrl: user.avatarUrl } : undefined}
+                            friend={friend}
+                            onReply={handleReply}
+                            onEdit={handleEdit}
+                            onDelete={handleDelete}
+                            onStartCall={handleStartCall}
+                            isLoading={isLoading}
+                            hasMore={hasMore}
+                            onLoadMore={() => {
+                                const lastMessage = messages[messages.length - 1];
+                                if (lastMessage) {
+                                    fetchMessages(channelId!, lastMessage.$id);
+                                }
                             }}
-                            className="text-interactive-normal hover:text-interactive-hover py-2.5"
-                        >
-                            <PlusCircle size={20} />
-                        </button>
+                            onProfileClick={(e, clickedUser) => {
+                                setSelectedProfile({
+                                    user: {
+                                        displayName: clickedUser.displayName,
+                                        avatarUrl: clickedUser.avatarUrl,
+                                        status: clickedUser.status
+                                    },
+                                    position: { x: e.clientX, y: e.clientY },
+                                    isCurrentUser: clickedUser.displayName === user?.displayName
+                                });
+                            }}
+                        />
+                    )}
+                </div>
 
-                        {showAttachmentMenu && (
-                            <div className="absolute bottom-full left-0 mb-2 w-56 bg-background-floating rounded-lg shadow-lg border border-background-tertiary overflow-hidden z-50">
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="w-full flex items-center gap-3 px-3 py-2.5 text-text-normal hover:bg-background-modifier-hover transition-colors"
-                                >
-                                    <Image size={20} className="text-discord-primary" />
-                                    <span>Upload a File</span>
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setShowAttachmentMenu(false);
-                                        // You can add more functionality here
-                                        alert('Create Thread feature coming soon!');
-                                    }}
-                                    className="w-full flex items-center gap-3 px-3 py-2.5 text-text-normal hover:bg-background-modifier-hover transition-colors"
-                                >
-                                    <Hash size={20} className="text-green-500" />
-                                    <span>Create Thread</span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                <div className="px-4 pb-6 relative">
+                    {/* Typing Indicator */}
+                    <TypingIndicator usernames={typingUsernames} />
 
+                    {/* Hidden file input */}
                     <input
-                        type="text"
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder={`Message @${friend.displayName}`}
-                        className="flex-1 bg-transparent py-2.5 text-text-normal placeholder:text-text-muted focus:outline-none"
-                        disabled={isSending}
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileSelect}
+                        accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+                        className="hidden"
                     />
 
-                    <div className="flex items-center gap-1">
-                        {/* Gift Button */}
-                        <button
-                            onClick={() => alert('Nitro Gift feature coming soon!')}
-                            className="text-interactive-normal hover:text-interactive-hover p-1.5"
-                            title="Send a gift"
-                        >
-                            <Gift size={20} />
-                        </button>
+                    {/* Reply Bar */}
+                    {replyingTo && friend && (
+                        <ReplyBar
+                            message={replyingTo}
+                            friend={friend}
+                            currentUserId={user?.$id || ''}
+                            currentUser={user ? { displayName: user.displayName } : undefined}
+                            onCancel={clearReplyingTo}
+                        />
+                    )}
 
-                        {/* GIF Picker */}
-                        <div className="relative" ref={gifPickerRef}>
+                    {/* File preview */}
+                    {selectedFile && (
+                        <div className="mb-2 p-3 bg-background-secondary rounded-lg">
+                            <div className="flex items-start gap-3">
+                                {filePreview ? (
+                                    <img src={filePreview} alt="Preview" className="w-20 h-20 object-cover rounded" />
+                                ) : (
+                                    <div className="w-20 h-20 bg-background-tertiary rounded flex items-center justify-center">
+                                        <FileText size={32} className="text-text-muted" />
+                                    </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-text-normal font-medium truncate">{selectedFile.name}</p>
+                                    <p className="text-xs text-text-muted">
+                                        {(selectedFile.size / 1024).toFixed(1)} KB
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={clearFileSelection}
+                                    className="p-1 text-text-muted hover:text-text-normal hover:bg-background-modifier-hover rounded"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={`flex items-center gap-2 bg-background-tertiary px-4 relative ${replyingTo ? 'rounded-b-lg' : 'rounded-lg'}`}>
+                        {/* Attachment Menu */}
+                        <div className="relative" ref={attachmentMenuRef}>
                             <button
                                 onClick={() => {
-                                    setShowGifPicker(!showGifPicker);
+                                    setShowAttachmentMenu(!showAttachmentMenu);
                                     setShowEmojiPicker(false);
-                                    setShowAttachmentMenu(false);
+                                    setShowGifPicker(false);
                                 }}
-                                className={`p-1.5 rounded transition-colors ${showGifPicker
-                                    ? 'text-discord-primary bg-background-modifier-hover'
-                                    : 'text-interactive-normal hover:text-interactive-hover'
-                                    }`}
-                                title="GIF"
+                                className="text-interactive-normal hover:text-interactive-hover py-2.5"
                             >
-                                <span className="text-xs font-bold">GIF</span>
+                                <PlusCircle size={20} />
                             </button>
 
-                            {showGifPicker && (
-                                <div className="absolute bottom-full right-0 mb-2 w-96 h-96 bg-background-floating rounded-lg shadow-lg border border-background-tertiary overflow-hidden z-50">
-                                    <div className="p-3 border-b border-background-tertiary">
-                                        <div className="flex items-center gap-2 bg-background-secondary rounded px-3 py-2">
-                                            <Search size={16} className="text-text-muted" />
-                                            <input
-                                                type="text"
-                                                placeholder="Search Tenor"
-                                                value={gifSearchQuery}
-                                                onChange={(e) => setGifSearchQuery(e.target.value)}
-                                                className="flex-1 bg-transparent text-sm text-text-normal placeholder:text-text-muted focus:outline-none"
-                                            />
+                            {showAttachmentMenu && (
+                                <div className="absolute bottom-full left-0 mb-2 w-56 bg-background-floating rounded-lg shadow-lg border border-background-tertiary overflow-hidden z-50">
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full flex items-center gap-3 px-3 py-2.5 text-text-normal hover:bg-background-modifier-hover transition-colors"
+                                    >
+                                        <Image size={20} className="text-discord-primary" />
+                                        <span>Upload a File</span>
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowAttachmentMenu(false);
+                                            // You can add more functionality here
+                                            alert('Create Thread feature coming soon!');
+                                        }}
+                                        className="w-full flex items-center gap-3 px-3 py-2.5 text-text-normal hover:bg-background-modifier-hover transition-colors"
+                                    >
+                                        <Hash size={20} className="text-green-500" />
+                                        <span>Create Thread</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        <input
+                            type="text"
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder={`Message @${friend.displayName}`}
+                            className="flex-1 bg-transparent py-2.5 text-text-normal placeholder:text-text-muted focus:outline-none"
+                            disabled={isSending}
+                        />
+
+                        <div className="flex items-center gap-1">
+                            {/* Gift Button */}
+                            <button
+                                onClick={() => alert('Nitro Gift feature coming soon!')}
+                                className="text-interactive-normal hover:text-interactive-hover p-1.5"
+                                title="Send a gift"
+                            >
+                                <Gift size={20} />
+                            </button>
+
+                            {/* GIF Picker */}
+                            <div className="relative" ref={gifPickerRef}>
+                                <button
+                                    onClick={() => {
+                                        setShowGifPicker(!showGifPicker);
+                                        setShowEmojiPicker(false);
+                                        setShowAttachmentMenu(false);
+                                    }}
+                                    className={`p-1.5 rounded transition-colors ${showGifPicker
+                                        ? 'text-discord-primary bg-background-modifier-hover'
+                                        : 'text-interactive-normal hover:text-interactive-hover'
+                                        }`}
+                                    title="GIF"
+                                >
+                                    <span className="text-xs font-bold">GIF</span>
+                                </button>
+
+                                {showGifPicker && (
+                                    <div className="absolute bottom-full right-0 mb-2 w-96 h-96 bg-background-floating rounded-lg shadow-lg border border-background-tertiary overflow-hidden z-50">
+                                        <div className="p-3 border-b border-background-tertiary">
+                                            <div className="flex items-center gap-2 bg-background-secondary rounded px-3 py-2">
+                                                <Search size={16} className="text-text-muted" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search Tenor"
+                                                    value={gifSearchQuery}
+                                                    onChange={(e) => setGifSearchQuery(e.target.value)}
+                                                    className="flex-1 bg-transparent text-sm text-text-normal placeholder:text-text-muted focus:outline-none"
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    <div className="flex border-b border-background-tertiary overflow-x-auto">
-                                        {GIF_CATEGORIES.map((cat) => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setSelectedGifCategory(cat)}
-                                                className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${selectedGifCategory === cat
-                                                    ? 'text-white border-b-2 border-discord-primary'
-                                                    : 'text-text-muted hover:text-text-normal'
-                                                    }`}
-                                            >
-                                                {cat}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <div className="p-2 h-64 overflow-y-auto">
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {(SAMPLE_GIFS[selectedGifCategory] || SAMPLE_GIFS['Trending']).map((gifUrl, idx) => (
+                                        <div className="flex border-b border-background-tertiary overflow-x-auto">
+                                            {GIF_CATEGORIES.map((cat) => (
                                                 <button
-                                                    key={idx}
-                                                    onClick={() => handleGifSelect(gifUrl)}
-                                                    className="aspect-video bg-background-secondary rounded overflow-hidden hover:ring-2 hover:ring-discord-primary transition-all"
+                                                    key={cat}
+                                                    onClick={() => setSelectedGifCategory(cat)}
+                                                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${selectedGifCategory === cat
+                                                        ? 'text-white border-b-2 border-discord-primary'
+                                                        : 'text-text-muted hover:text-text-normal'
+                                                        }`}
                                                 >
-                                                    <img
-                                                        src={gifUrl}
-                                                        alt="GIF"
-                                                        className="w-full h-full object-cover"
-                                                        loading="lazy"
-                                                    />
+                                                    {cat}
                                                 </button>
                                             ))}
-                                            {/* Placeholder for more GIFs */}
-                                            <div className="col-span-2 py-4 text-center text-text-muted text-sm">
-                                                Powered by Tenor
+                                        </div>
+
+                                        <div className="p-2 h-64 overflow-y-auto">
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {(SAMPLE_GIFS[selectedGifCategory] || SAMPLE_GIFS['Trending']).map((gifUrl, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        onClick={() => handleGifSelect(gifUrl)}
+                                                        className="aspect-video bg-background-secondary rounded overflow-hidden hover:ring-2 hover:ring-discord-primary transition-all"
+                                                    >
+                                                        <img
+                                                            src={gifUrl}
+                                                            alt="GIF"
+                                                            className="w-full h-full object-cover"
+                                                            loading="lazy"
+                                                        />
+                                                    </button>
+                                                ))}
+                                                {/* Placeholder for more GIFs */}
+                                                <div className="col-span-2 py-4 text-center text-text-muted text-sm">
+                                                    Powered by Tenor
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
 
-                        {/* Emoji Picker */}
-                        <div className="relative" ref={emojiPickerRef}>
-                            <button
-                                onClick={() => {
-                                    setShowEmojiPicker(!showEmojiPicker);
-                                    setShowGifPicker(false);
-                                    setShowAttachmentMenu(false);
-                                }}
-                                className={`p-1.5 rounded transition-colors ${showEmojiPicker
-                                    ? 'text-discord-primary bg-background-modifier-hover'
-                                    : 'text-interactive-normal hover:text-interactive-hover'
-                                    }`}
-                                title="Emoji"
-                            >
-                                <Smile size={20} />
-                            </button>
+                            {/* Emoji Picker */}
+                            <div className="relative" ref={emojiPickerRef}>
+                                <button
+                                    onClick={() => {
+                                        setShowEmojiPicker(!showEmojiPicker);
+                                        setShowGifPicker(false);
+                                        setShowAttachmentMenu(false);
+                                    }}
+                                    className={`p-1.5 rounded transition-colors ${showEmojiPicker
+                                        ? 'text-discord-primary bg-background-modifier-hover'
+                                        : 'text-interactive-normal hover:text-interactive-hover'
+                                        }`}
+                                    title="Emoji"
+                                >
+                                    <Smile size={20} />
+                                </button>
 
-                            {showEmojiPicker && (
-                                <div className="absolute bottom-full right-0 mb-2 w-80 h-96 bg-background-floating rounded-lg shadow-lg border border-background-tertiary overflow-hidden z-50">
-                                    <div className="p-2 border-b border-background-tertiary">
-                                        <div className="flex items-center gap-2 bg-background-secondary rounded px-3 py-2">
-                                            <Search size={16} className="text-text-muted" />
-                                            <input
-                                                type="text"
-                                                placeholder="Search emoji"
-                                                className="flex-1 bg-transparent text-sm text-text-normal placeholder:text-text-muted focus:outline-none"
-                                            />
+                                {showEmojiPicker && (
+                                    <div className="absolute bottom-full right-0 mb-2 w-80 h-96 bg-background-floating rounded-lg shadow-lg border border-background-tertiary overflow-hidden z-50">
+                                        <div className="p-2 border-b border-background-tertiary">
+                                            <div className="flex items-center gap-2 bg-background-secondary rounded px-3 py-2">
+                                                <Search size={16} className="text-text-muted" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search emoji"
+                                                    className="flex-1 bg-transparent text-sm text-text-normal placeholder:text-text-muted focus:outline-none"
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    <div className="flex border-b border-background-tertiary overflow-x-auto px-2">
-                                        {Object.keys(EMOJI_CATEGORIES).map((cat) => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setSelectedEmojiCategory(cat)}
-                                                className={`p-2 text-lg transition-colors ${selectedEmojiCategory === cat
-                                                    ? 'bg-background-modifier-hover rounded'
-                                                    : 'hover:bg-background-modifier-hover rounded'
-                                                    }`}
-                                                title={cat}
-                                            >
-                                                {EMOJI_CATEGORIES[cat as keyof typeof EMOJI_CATEGORIES][0]}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <div className="p-2 h-64 overflow-y-auto">
-                                        <p className="text-xs text-text-muted font-semibold mb-2 px-1">{selectedEmojiCategory}</p>
-                                        <div className="grid grid-cols-8 gap-1">
-                                            {EMOJI_CATEGORIES[selectedEmojiCategory as keyof typeof EMOJI_CATEGORIES].map((emoji, idx) => (
+                                        <div className="flex border-b border-background-tertiary overflow-x-auto px-2">
+                                            {Object.keys(EMOJI_CATEGORIES).map((cat) => (
                                                 <button
-                                                    key={idx}
-                                                    onClick={() => handleEmojiSelect(emoji)}
-                                                    className="p-1 text-xl hover:bg-background-modifier-hover rounded transition-colors"
+                                                    key={cat}
+                                                    onClick={() => setSelectedEmojiCategory(cat)}
+                                                    className={`p-2 text-lg transition-colors ${selectedEmojiCategory === cat
+                                                        ? 'bg-background-modifier-hover rounded'
+                                                        : 'hover:bg-background-modifier-hover rounded'
+                                                        }`}
+                                                    title={cat}
                                                 >
-                                                    {emoji}
+                                                    {EMOJI_CATEGORIES[cat as keyof typeof EMOJI_CATEGORIES][0]}
                                                 </button>
                                             ))}
                                         </div>
+
+                                        <div className="p-2 h-64 overflow-y-auto">
+                                            <p className="text-xs text-text-muted font-semibold mb-2 px-1">{selectedEmojiCategory}</p>
+                                            <div className="grid grid-cols-8 gap-1">
+                                                {EMOJI_CATEGORIES[selectedEmojiCategory as keyof typeof EMOJI_CATEGORIES].map((emoji, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        onClick={() => handleEmojiSelect(emoji)}
+                                                        className="p-1 text-xl hover:bg-background-modifier-hover rounded transition-colors"
+                                                    >
+                                                        {emoji}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+                            </div>
+
+                            {(inputValue.trim() || selectedFile) && (
+                                <button
+                                    onClick={handleSend}
+                                    disabled={isSending}
+                                    className="text-discord-primary hover:text-discord-primary/80 p-1.5 disabled:opacity-50"
+                                >
+                                    <SendHorizontal size={20} />
+                                </button>
                             )}
                         </div>
-
-                        {(inputValue.trim() || selectedFile) && (
-                            <button
-                                onClick={handleSend}
-                                disabled={isSending}
-                                className="text-discord-primary hover:text-discord-primary/80 p-1.5 disabled:opacity-50"
-                            >
-                                <SendHorizontal size={20} />
-                            </button>
-                        )}
                     </div>
                 </div>
+                {/* Profile Popover */}
+                {selectedProfile && (
+                    <ProfilePopover
+                        user={selectedProfile.user}
+                        isOpen={!!selectedProfile}
+                        onClose={() => setSelectedProfile(null)}
+                        isCurrentUser={selectedProfile.isCurrentUser}
+                        position={selectedProfile.position}
+                        onMessage={() => {
+                            // Already in DM, just close
+                            setSelectedProfile(null);
+                        }}
+                    />
+                )}
             </div>
-            {/* Profile Popover */}
-            {selectedProfile && (
-                <ProfilePopover
-                    user={selectedProfile.user}
-                    isOpen={!!selectedProfile}
-                    onClose={() => setSelectedProfile(null)}
-                    isCurrentUser={selectedProfile.isCurrentUser}
-                    position={selectedProfile.position}
-                    onMessage={() => {
-                        // Already in DM, just close
-                        setSelectedProfile(null);
-                    }}
-                />
-            )}
-        </div>
+        </>
     );
 }
 

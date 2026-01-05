@@ -28,6 +28,7 @@ import {
     GripVertical
 } from 'lucide-react';
 import type { Server, Channel } from '@/types';
+import { VoiceConnectionPanel } from '@/components/call';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore, type ChannelReorderItem } from '@/stores/serverStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -261,6 +262,9 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
                     ) : null}
                 </DragOverlay>
             </DndContext>
+
+            {/* Voice Connection Status */}
+            <VoiceConnectionPanel />
 
             {/* User panel */}
             <div className="p-2 bg-background-secondary-alt">
