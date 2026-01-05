@@ -31,6 +31,7 @@ export interface CallContainerProps {
 
     // Callbacks
     onStopScreenShare?: () => void;
+    onParticipantClick?: (participant: { odId: string; displayName: string; avatarUrl?: string; isLocal: boolean }) => void;
 }
 
 export function CallContainer({
@@ -44,6 +45,7 @@ export function CallContainer({
     localScreenStream,
     participants,
     onStopScreenShare,
+    onParticipantClick,
 }: CallContainerProps) {
     const [focusedId, setFocusedId] = useState<string | null>(null);
 
@@ -156,6 +158,13 @@ export function CallContainer({
                         isLocal={focusedParticipant.odId === 'local'}
                         size="focused"
                         isFocused
+                        onClick={() => onParticipantClick?.({
+                            odId: focusedParticipant.odId,
+                            displayName: focusedParticipant.displayName,
+                            avatarUrl: focusedParticipant.avatarUrl,
+                            isLocal: focusedParticipant.odId === 'local'
+                        })}
+                        onDoubleClick={() => setFocusedId(null)}
                     />
                 </div>
             )}
@@ -202,7 +211,6 @@ export function CallContainer({
                     {allParticipants.map(participant => (
                         <div
                             key={participant.odId}
-                            onClick={() => handleFocus(participant.odId)}
                             className="cursor-pointer w-full max-w-[400px]"
                         >
                             <ParticipantCard
@@ -215,6 +223,13 @@ export function CallContainer({
                                 isSpeaking={participant.isSpeaking}
                                 isLocal={participant.odId === 'local'}
                                 size="medium"
+                                onClick={() => onParticipantClick?.({
+                                    odId: participant.odId,
+                                    displayName: participant.displayName,
+                                    avatarUrl: participant.avatarUrl,
+                                    isLocal: participant.odId === 'local'
+                                })}
+                                onDoubleClick={() => handleFocus(participant.odId)}
                             />
                         </div>
                     ))}

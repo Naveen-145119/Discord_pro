@@ -17,7 +17,7 @@ import {
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
-import { CallContainer, DeviceSettingsPopover, InCallChatSection } from '@/components/call';
+import { CallContainer, DeviceSettingsPopover, InCallChatSection, ProfilePopover } from '@/components/call';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
@@ -91,6 +91,12 @@ export function ActiveCallModal({
     // Chat state - simple toggle (InCallChatSection handles all messaging internally)
     const [showChat, setShowChat] = useState(false);
     const channelId = call.channelId;
+
+    // Profile popover state
+    const [selectedProfile, setSelectedProfile] = useState<{
+        user: { displayName: string; avatarUrl?: string | null; username?: string; status?: string };
+        isCurrentUser: boolean;
+    } | null>(null);
 
     // Convert participants Map to Array for CallContainer
     const participantsArray = useMemo(() => Array.from(participants.values()), [participants]);
@@ -617,6 +623,14 @@ export function ActiveCallModal({
                         localScreenStream={screenStream}
                         participants={participantsArray}
                         onStopScreenShare={onToggleScreenShare}
+                        onParticipantClick={(participant) => setSelectedProfile({
+                            user: {
+                                displayName: participant.displayName,
+                                avatarUrl: participant.avatarUrl,
+                                status: participant.isLocal ? 'online' : (friend.status || 'offline')
+                            },
+                            isCurrentUser: participant.isLocal
+                        })}
                     />
 
                     {/* Screen Share Indicator */}
@@ -718,6 +732,19 @@ export function ActiveCallModal({
                         onClose={() => setShowChat(false)}
                     />
                 </div>
+            )}
+            {/* Profile Popover */}
+            {selectedProfile && (
+                <ProfilePopover
+                    user={selectedProfile.user}
+                    isOpen={!!selectedProfile}
+                    onClose={() => setSelectedProfile(null)}
+                    isCurrentUser={selectedProfile.isCurrentUser}
+                    onMessage={() => {
+                        setShowChat(true);
+                        setSelectedProfile(null);
+                    }}
+                />
             )}
         </div>
     );
