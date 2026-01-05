@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useFriends } from '@/hooks/useFriends';
 import { useDMs } from '@/hooks/useDMs';
 import { AddFriendModal } from '@/components/modals/AddFriendModal';
+import { VoiceConnectionPanel } from '@/components/call';
 import {
     Users,
     Settings,
@@ -16,6 +17,7 @@ import {
     Loader2,
     MessageCircle
 } from 'lucide-react';
+import { ProfilePopover } from '@/components/modals/ProfilePopover';
 
 type FriendTab = 'all' | 'pending' | 'online';
 
@@ -37,6 +39,26 @@ export function HomePage() {
     const [activeTab, setActiveTab] = useState<FriendTab>('all');
     const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [selectedProfile, setSelectedProfile] = useState<{
+        user: { displayName: string; avatarUrl?: string | null; username?: string; status?: string };
+        position: { x: number; y: number };
+        isCurrentUser: boolean;
+    } | null>(null);
+
+    const handleProfileClick = (e: React.MouseEvent, user: any, isCurrentUser: boolean = false) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedProfile({
+            user: {
+                displayName: user.displayName,
+                avatarUrl: user.avatarUrl,
+                username: user.username,
+                status: user.status
+            },
+            position: { x: e.clientX, y: e.clientY },
+            isCurrentUser
+        });
+    };
 
     const onlineFriends = friends.filter(f => f.status === 'online' || f.status === 'idle');
     const totalPending = pendingRequests.length + sentRequests.length;
@@ -119,7 +141,10 @@ export function HomePage() {
                                     className="channel-item w-full"
                                 >
                                     <div className="relative">
-                                        <div className="avatar w-8 h-8 bg-discord-primary overflow-hidden">
+                                        <div
+                                            className="avatar w-8 h-8 bg-discord-primary overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                                            onClick={(e) => handleProfileClick(e, dm.friend)}
+                                        >
                                             {dm.friend?.avatarUrl ? (
                                                 <img src={dm.friend.avatarUrl} alt="" className="w-full h-full object-cover" />
                                             ) : (
@@ -137,9 +162,14 @@ export function HomePage() {
                     )}
                 </div>
 
+                <VoiceConnectionPanel />
+
                 <div className="px-2 py-2 bg-background-secondary-alt">
                     <div className="flex items-center gap-2 p-1 rounded hover:bg-background-modifier-hover">
-                        <div className="avatar w-8 h-8 bg-discord-primary overflow-hidden">
+                        <div
+                            className="avatar w-8 h-8 bg-discord-primary overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={(e) => user && handleProfileClick(e, user, true)}
+                        >
                             {user?.avatarUrl ? (
                                 <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
                             ) : (
@@ -251,6 +281,7 @@ export function HomePage() {
                                                     onRemove={() => handleRemove(friend.$id)}
                                                     onMessage={() => handleMessage(friend.$id)}
                                                     isLoading={actionLoading === friend.$id}
+                                                    onProfileClick={(e) => handleProfileClick(e, friend)}
                                                 />
                                             ))}
                                         </div>
@@ -282,6 +313,7 @@ export function HomePage() {
                                                     onRemove={() => handleRemove(friend.$id)}
                                                     onMessage={() => handleMessage(friend.$id)}
                                                     isLoading={actionLoading === friend.$id}
+                                                    onProfileClick={(e) => handleProfileClick(e, friend)}
                                                 />
                                             ))}
                                         </div>
@@ -405,6 +437,24 @@ export function HomePage() {
                 onClose={() => setIsAddFriendModalOpen(false)}
                 onSendRequest={sendRequest}
             />
+
+            {selectedProfile && (
+                <ProfilePopover
+                    user={selectedProfile.user}
+                    isOpen={!!selectedProfile}
+                    onClose={() => setSelectedProfile(null)}
+                    isCurrentUser={selectedProfile.isCurrentUser}
+                    position={selectedProfile.position}
+                    onMessage={() => {
+                        // Navigate to DM if not current user
+                        if (!selectedProfile.isCurrentUser) {
+                            // Find friend ID logic here - simplified for now
+                            // handleMessage(selectedProfile.user.id);
+                        }
+                        setSelectedProfile(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -420,9 +470,10 @@ interface FriendItemProps {
     onRemove: () => void;
     onMessage: () => void;
     isLoading: boolean;
+    onProfileClick: (e: React.MouseEvent) => void;
 }
 
-function FriendItem({ friend, onRemove, onMessage, isLoading }: FriendItemProps) {
+function FriendItem({ friend, onRemove, onMessage, isLoading, onProfileClick }: FriendItemProps) {
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'online': return 'bg-green-500';
@@ -435,7 +486,10 @@ function FriendItem({ friend, onRemove, onMessage, isLoading }: FriendItemProps)
     return (
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-background-modifier-hover group">
             <div className="relative">
-                <div className="avatar w-10 h-10 bg-discord-primary overflow-hidden">
+                <div
+                    className="avatar w-10 h-10 bg-discord-primary overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={onProfileClick}
+                >
                     {friend.avatarUrl ? (
                         <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (

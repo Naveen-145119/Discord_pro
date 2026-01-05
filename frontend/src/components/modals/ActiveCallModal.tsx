@@ -17,7 +17,9 @@ import {
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
-import { CallContainer, DeviceSettingsPopover, InCallChatSection, ProfilePopover } from '@/components/call';
+import { CallContainer, DeviceSettingsPopover, InCallChatSection } from '@/components/call';
+import { ProfilePopover } from '@/components/modals/ProfilePopover';
+import { useMediaStore } from '@/stores/mediaStore';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
@@ -82,7 +84,7 @@ export function ActiveCallModal({
     const callStartTimeRef = useRef<number | null>(null);
 
     const [audioPlaybackFailed, setAudioPlaybackFailed] = useState(false);
-    const [volume, setVolume] = useState(100); // 0-200%
+    const { outputVolume: volume, setOutputVolume: setVolume } = useMediaStore();
     const [showVolumeSlider, setShowVolumeSlider] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [callDuration, setCallDuration] = useState(0);

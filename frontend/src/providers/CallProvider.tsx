@@ -14,6 +14,18 @@ interface CallContextType {
     currentCall: ActiveCall | null;
     isMinimized: boolean;
     setIsMinimized: (minimized: boolean) => void;
+    // Controls
+    toggleMute: () => void;
+    toggleDeafen: () => void;
+    toggleVideo: () => Promise<void>;
+    toggleScreenShare: () => Promise<void>;
+    endCall: () => void;
+    // State
+    isMuted: boolean;
+    isDeafened: boolean;
+    isVideoOn: boolean;
+    isScreenSharing: boolean;
+    connectionState: string;
 }
 
 const CallContext = createContext<CallContextType | null>(null);
@@ -115,6 +127,18 @@ export function CallProvider({ children }: CallProviderProps) {
             currentCall: call.currentCall,
             isMinimized,
             setIsMinimized,
+            // Controls
+            toggleMute: call.toggleMute,
+            toggleDeafen: call.toggleDeafen,
+            toggleVideo: call.toggleVideo,
+            toggleScreenShare: call.toggleScreenShare,
+            endCall: call.endCall,
+            // State
+            isMuted: call.isMuted,
+            isDeafened: call.isDeafened,
+            isVideoOn: call.isVideoOn,
+            isScreenSharing: call.isScreenSharing,
+            connectionState: call.connectionState,
         }}>
             {children}
 

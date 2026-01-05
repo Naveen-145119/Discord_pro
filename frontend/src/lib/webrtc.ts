@@ -128,13 +128,55 @@ export function createPeerConnection(): RTCPeerConnection {
     return new RTCPeerConnection(PEER_CONNECTION_CONFIG);
 }
 
+
+export function getAudioConstraints(settings?: {
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+    deviceId?: string;
+}): MediaTrackConstraints {
+    const constraints: MediaTrackConstraints = {
+        echoCancellation: settings?.echoCancellation ?? true,
+        noiseSuppression: settings?.noiseSuppression ?? true,
+        autoGainControl: settings?.autoGainControl ?? true,
+        // Advanced Chrome-specific constraints for "crisp" audio
+        // @ts-ignore - Vendor specific constraints
+        googEchoCancellation: settings?.echoCancellation ?? true,
+        googAutoGainControl: settings?.autoGainControl ?? true,
+        googNoiseSuppression: settings?.noiseSuppression ?? true,
+        googHighpassFilter: true,
+        googTypingNoiseDetection: true, // Detects and swallows keyboard clicks
+    };
+
+    if (settings?.deviceId && settings.deviceId !== 'default') {
+        constraints.deviceId = { exact: settings.deviceId };
+    }
+
+    return constraints;
+}
+
+export function getVideoConstraints(deviceId?: string): MediaTrackConstraints {
+    const constraints: MediaTrackConstraints = {
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 },
+        frameRate: { min: 15, ideal: 30, max: 60 },
+        facingMode: 'user',
+    };
+
+    if (deviceId && deviceId !== 'default') {
+        constraints.deviceId = { exact: deviceId };
+    }
+
+    return constraints;
+}
+
 export async function getUserMedia(
-    video: boolean = false
+    constraints?: MediaStreamConstraints
 ): Promise<MediaStream> {
-    const constraints = video ? VIDEO_CONSTRAINTS : VOICE_CONSTRAINTS;
+    const finalConstraints = constraints || VOICE_CONSTRAINTS;
 
     try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
+        return await navigator.mediaDevices.getUserMedia(finalConstraints);
     } catch (error) {
         if (error instanceof Error) {
             if (error.name === 'NotAllowedError') {

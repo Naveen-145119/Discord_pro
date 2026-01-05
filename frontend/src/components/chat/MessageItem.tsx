@@ -31,6 +31,7 @@ interface MessageItemProps {
     onDelete?: (message: Message) => void;
     onReaction?: (message: Message, emoji: string) => void;
     onStartCall?: (type: 'voice' | 'video') => void;
+    onAvatarClick?: (e: React.MouseEvent) => void;
 }
 
 function formatHoverTime(dateString: string): string {
@@ -52,7 +53,9 @@ export function MessageItem({
     onEditSave,
     onDelete,
     onReaction,
+
     onStartCall,
+    onAvatarClick,
 }: MessageItemProps) {
     const [isHovered, setIsHovered] = useState(false);
     const [showQuickReactions, setShowQuickReactions] = useState(false);
@@ -170,7 +173,10 @@ export function MessageItem({
                     {/* Avatar column */}
                     <div className="w-10 flex-shrink-0">
                         {isHeader ? (
-                            <div className="w-10 h-10 rounded-full bg-discord-primary flex items-center justify-center overflow-hidden">
+                            <div
+                                className="w-10 h-10 rounded-full bg-discord-primary flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                                onClick={onAvatarClick}
+                            >
                                 {avatarUrl ? (
                                     <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
@@ -187,7 +193,10 @@ export function MessageItem({
                         {/* Header with name and timestamp */}
                         {isHeader && (
                             <div className="flex items-baseline gap-2 mb-0.5">
-                                <span className="font-medium text-text-heading hover:underline cursor-pointer">
+                                <span
+                                    className="font-medium text-text-heading hover:underline cursor-pointer"
+                                    onClick={onAvatarClick}
+                                >
                                     {displayName}
                                 </span>
                                 <span className="text-xs text-text-muted">

@@ -28,6 +28,7 @@ interface MessageListProps {
     isLoading?: boolean;
     hasMore?: boolean;
     onLoadMore?: () => void;
+    onProfileClick?: (e: React.MouseEvent, user: any) => void;
 }
 
 /**
@@ -99,7 +100,9 @@ export function MessageList({
     onStartCall,
     isLoading,
     hasMore,
+
     onLoadMore,
+    onProfileClick,
 }: MessageListProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const endRef = useRef<HTMLDivElement>(null);
@@ -172,7 +175,15 @@ export function MessageList({
                             onEditSave={onEditSave}
                             onDelete={onDelete}
                             onReaction={onReaction}
+
                             onStartCall={onStartCall}
+                            onAvatarClick={(e) => {
+                                const isOwn = processed.message.authorId === currentUserId;
+                                const user = isOwn
+                                    ? { displayName: currentUser?.displayName, avatarUrl: currentUser?.avatarUrl, status: 'online' }
+                                    : friend;
+                                onProfileClick?.(e, user);
+                            }}
                         />
                     </div>
                 ))}

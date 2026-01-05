@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useDMs } from '@/hooks/useDMs';
 import { useCallContext } from '@/providers/CallProvider';
 import { MessageList, ReplyBar, TypingIndicator } from '@/components/chat';
+import { ProfilePopover } from '@/components/modals/ProfilePopover';
 import type { Message as MessageType, User } from '@/types';
 import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite';
 
@@ -92,6 +93,14 @@ export function DMPage() {
     const [selectedEmojiCategory, setSelectedEmojiCategory] = useState('Smileys');
     const [selectedGifCategory, setSelectedGifCategory] = useState('Trending');
     const [gifSearchQuery, setGifSearchQuery] = useState('');
+
+    const [selectedProfile, setSelectedProfile] = useState<{
+        user: { displayName: string; avatarUrl?: string | null; username?: string; status?: string };
+        position: { x: number; y: number };
+        isCurrentUser: boolean;
+    } | null>(null);
+
+
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [filePreview, setFilePreview] = useState<string | null>(null);
 
@@ -406,6 +415,17 @@ export function DMPage() {
                                 fetchMessages(channelId!, lastMessage.$id);
                             }
                         }}
+                        onProfileClick={(e, clickedUser) => {
+                            setSelectedProfile({
+                                user: {
+                                    displayName: clickedUser.displayName,
+                                    avatarUrl: clickedUser.avatarUrl,
+                                    status: clickedUser.status
+                                },
+                                position: { x: e.clientX, y: e.clientY },
+                                isCurrentUser: clickedUser.displayName === user?.displayName
+                            });
+                        }}
                     />
                 )}
             </div>
@@ -668,6 +688,20 @@ export function DMPage() {
                     </div>
                 </div>
             </div>
+            {/* Profile Popover */}
+            {selectedProfile && (
+                <ProfilePopover
+                    user={selectedProfile.user}
+                    isOpen={!!selectedProfile}
+                    onClose={() => setSelectedProfile(null)}
+                    isCurrentUser={selectedProfile.isCurrentUser}
+                    position={selectedProfile.position}
+                    onMessage={() => {
+                        // Already in DM, just close
+                        setSelectedProfile(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

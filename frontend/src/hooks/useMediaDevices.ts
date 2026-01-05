@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useMediaStore } from '@/stores/mediaStore';
 
 export interface MediaDevice {
     deviceId: string;
@@ -40,14 +41,17 @@ interface UseMediaDevicesReturn {
 }
 
 export function useMediaDevices(): UseMediaDevicesReturn {
+    const {
+        inputDeviceId, setInputDeviceId,
+        outputDeviceId, setOutputDeviceId,
+        videoDeviceId, setVideoDeviceId
+    } = useMediaStore();
+
     const [audioInputs, setAudioInputs] = useState<MediaDevice[]>([]);
     const [audioOutputs, setAudioOutputs] = useState<MediaDevice[]>([]);
     const [videoInputs, setVideoInputs] = useState<MediaDevice[]>([]);
 
-    const [selectedAudioInput, setSelectedAudioInput] = useState<string | null>(null);
-    const [selectedAudioOutput, setSelectedAudioOutput] = useState<string | null>(null);
-    const [selectedVideoInput, setSelectedVideoInput] = useState<string | null>(null);
-
+    // Permissions state
     const [hasAudioPermission, setHasAudioPermission] = useState(false);
     const [hasVideoPermission, setHasVideoPermission] = useState(false);
 
@@ -82,11 +86,6 @@ export function useMediaDevices(): UseMediaDevicesReturn {
             setAudioInputs(inputs);
             setAudioOutputs(outputs);
             setVideoInputs(videos);
-
-            // Auto-select first device if none selected
-            setSelectedAudioInput(prev => prev ?? (inputs[0]?.deviceId ?? null));
-            setSelectedAudioOutput(prev => prev ?? (outputs[0]?.deviceId ?? null));
-            setSelectedVideoInput(prev => prev ?? (videos[0]?.deviceId ?? null));
         } catch (error) {
             console.error('[useMediaDevices] Failed to enumerate devices:', error);
         }
@@ -136,14 +135,14 @@ export function useMediaDevices(): UseMediaDevicesReturn {
         audioInputs,
         audioOutputs,
         videoInputs,
-        selectedAudioInput,
-        selectedAudioOutput,
-        selectedVideoInput,
+        selectedAudioInput: inputDeviceId,
+        selectedAudioOutput: outputDeviceId,
+        selectedVideoInput: videoDeviceId,
         hasAudioPermission,
         hasVideoPermission,
-        selectAudioInput: setSelectedAudioInput,
-        selectAudioOutput: setSelectedAudioOutput,
-        selectVideoInput: setSelectedVideoInput,
+        selectAudioInput: setInputDeviceId,
+        selectAudioOutput: setOutputDeviceId,
+        selectVideoInput: setVideoDeviceId,
         requestPermissions,
         refreshDevices,
     };
@@ -212,13 +211,15 @@ export async function getTrackFromDevice(
     deviceId: string
 ): Promise<MediaStreamTrack | null> {
     try {
+        const { echoCancellation, noiseSuppression, autoGainControl } = useMediaStore.getState();
+
         const constraints: MediaStreamConstraints = kind === 'audio'
             ? {
                 audio: {
                     deviceId: { exact: deviceId },
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
+                    echoCancellation,
+                    noiseSuppression,
+                    autoGainControl,
                 },
                 video: false,
             }

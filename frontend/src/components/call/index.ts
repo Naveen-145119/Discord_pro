@@ -18,4 +18,4 @@ export { CallContainer, type CallContainerProps } from './CallContainer';
 export { DeviceSettingsPopover } from './DeviceSettingsPopover';
 export { MiniPlayer } from './MiniPlayer';
 export { InCallChatSection } from './InCallChatSection';
-export { ProfilePopover } from './ProfilePopover';
+export { VoiceConnectionPanel } from './VoiceConnectionPanel';

@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useMessageStore, subscribeToMessages } from '@/stores/messageStore';
 import { MessageList, ReplyBar, TypingIndicator } from '@/components/chat';
+
+import { ProfilePopover } from '@/components/modals/ProfilePopover';
 import type { User, Message } from '@/types';
 
 // Common emojis organized by category
@@ -85,7 +87,14 @@ export function InCallChatSection({ channelId, currentUserId, currentUser, frien
     const [showGifPicker, setShowGifPicker] = useState(false);
     const [selectedEmojiCategory, setSelectedEmojiCategory] = useState('Smileys');
     const [selectedGifCategory, setSelectedGifCategory] = useState('Trending');
+
     const [gifSearchQuery, setGifSearchQuery] = useState('');
+
+    const [selectedProfile, setSelectedProfile] = useState<{
+        user: { displayName: string; avatarUrl?: string | null; username?: string; status?: string };
+        position: { x: number; y: number };
+        isCurrentUser: boolean;
+    } | null>(null);
 
     // Refs for click outside
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
@@ -203,6 +212,17 @@ export function InCallChatSection({ channelId, currentUserId, currentUser, frien
                     onReaction={handleReaction}
                     isLoading={isLoading}
                     hasMore={hasMore}
+                    onProfileClick={(e, clickedUser) => {
+                        setSelectedProfile({
+                            user: {
+                                displayName: clickedUser.displayName,
+                                avatarUrl: clickedUser.avatarUrl,
+                                status: clickedUser.status
+                            },
+                            position: { x: e.clientX, y: e.clientY },
+                            isCurrentUser: clickedUser.displayName === currentUser?.displayName
+                        });
+                    }}
                 />
                 <div ref={messagesEndRef} />
             </div>
@@ -414,6 +434,20 @@ export function InCallChatSection({ channelId, currentUserId, currentUser, frien
                     </div>
                 </div>
             </div>
+            {/* Profile Popover */}
+            {selectedProfile && (
+                <ProfilePopover
+                    user={selectedProfile.user}
+                    isOpen={!!selectedProfile}
+                    onClose={() => setSelectedProfile(null)}
+                    isCurrentUser={selectedProfile.isCurrentUser}
+                    position={selectedProfile.position}
+                    onMessage={() => {
+                        // Already in chat
+                        setSelectedProfile(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

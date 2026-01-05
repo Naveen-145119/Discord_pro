@@ -26,6 +26,7 @@ interface UseCallReturn {
     incomingCall: ActiveCall | null;
     isInCall: boolean;
     isCalling: boolean;
+    connectionState: string;
     isMuted: boolean;
     isDeafened: boolean;
     isVideoOn: boolean;
@@ -486,6 +487,7 @@ export function useCall(): UseCallReturn {
         incomingCall,
         isInCall: !!currentCall && currentCall.status === 'answered',
         isCalling: !!currentCall && currentCall.status === 'ringing',
+        connectionState: webRTC.connectionState,
         isMuted: webRTC.isMuted,
         isDeafened: webRTC.isDeafened,
         isVideoOn: webRTC.isVideoOn,

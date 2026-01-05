@@ -5,6 +5,8 @@ import { useRealtime } from '@/providers/RealtimeProvider';
 import {
     createPeerConnection,
     getUserMedia,
+    getAudioConstraints,
+    getVideoConstraints,
     getDisplayMedia,
     setVideoBitrate,
     createVoiceActivityDetector,
@@ -14,6 +16,8 @@ import {
     type CallParticipant,
     type WebRTCSignal,
 } from '@/lib/webrtc';
+import { useMediaStore } from '@/stores/mediaStore';
+import { replaceTrackInConnection, getTrackFromDevice } from '@/hooks/useMediaDevices';
 
 interface UseWebRTCProps {
     channelId: string;
@@ -67,6 +71,10 @@ export function useWebRTC({
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
 
+    // Subscribe to store changes for device switching
+    const inputDeviceId = useMediaStore(state => state.inputDeviceId);
+    const videoDeviceId = useMediaStore(state => state.videoDeviceId);
+
     const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
     const unsubscribeRef = useRef<(() => void) | null>(null);
     const voiceDetectorCleanupRef = useRef<(() => void) | null>(null);
@@ -94,6 +102,64 @@ export function useWebRTC({
     const mixedAudioStreamRef = useRef<MediaStream | null>(null);
     const micGainNodeRef = useRef<GainNode | null>(null);
     const systemGainNodeRef = useRef<GainNode | null>(null);
+
+    // Dynamic Device Switching Logic
+    const handleDeviceChange = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
+        if (!localStreamRef.current) return;
+
+        // Avoid redundant switching if already on that device
+        const currentTrack = kind === 'audio'
+            ? localStreamRef.current.getAudioTracks()[0]
+            : localStreamRef.current.getVideoTracks()[0];
+
+        if (!currentTrack) return;
+
+        console.log(`[WebRTC] Switching ${kind} device to:`, deviceId);
+
+        try {
+            // 1. Get new track
+            const newTrack = await getTrackFromDevice(kind, deviceId);
+            if (!newTrack) {
+                console.warn(`[WebRTC] Failed to get new ${kind} track`);
+                return;
+            }
+
+            // 2. Stop old track and replace in local stream
+            currentTrack.stop();
+            localStreamRef.current?.removeTrack(currentTrack);
+            localStreamRef.current?.addTrack(newTrack);
+
+            // Force React update for local view and to notify context
+            const newStream = new MediaStream(localStreamRef.current?.getTracks() || []);
+            setLocalStream(newStream);
+
+            // 3. Replace in all peer connections
+            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+                console.log(`[WebRTC] Replacing track for peer ${peerId}`);
+                await replaceTrackInConnection(pc, newTrack, currentTrack.id);
+            }
+        } catch (err) {
+            console.error(`[WebRTC] Error switching ${kind} device:`, err);
+        }
+    }, []);
+
+    // Handle Audio Input Change
+    useEffect(() => {
+        if (inputDeviceId && inputDeviceId !== 'default') {
+            handleDeviceChange('audio', inputDeviceId);
+        }
+    }, [inputDeviceId, handleDeviceChange]);
+
+    // Handle Video Input Change
+    useEffect(() => {
+        if (videoDeviceId && videoDeviceId !== 'default') {
+            // Only switch if video is actively on
+            const hasVideo = (localStreamRef.current?.getVideoTracks().length ?? 0) > 0;
+            if (hasVideo) {
+                handleDeviceChange('video', videoDeviceId);
+            }
+        }
+    }, [videoDeviceId, handleDeviceChange]);
 
     // Target user info for participant display (displayName, avatarUrl)
     const targetUserInfoRef = useRef(targetUserInfo);
@@ -762,7 +828,27 @@ export function useWebRTC({
         setActiveChannelId(effectiveChannelId);
 
         try {
-            const stream = await getUserMedia(false);
+            // Get constraints from store
+            const {
+                inputDeviceId,
+                echoCancellation,
+                noiseSuppression,
+                autoGainControl
+            } = useMediaStore.getState();
+
+            const audioConstraints = getAudioConstraints({
+                deviceId: inputDeviceId,
+                echoCancellation,
+                noiseSuppression,
+                autoGainControl
+            });
+
+            // Initial join is audio-only
+            const stream = await getUserMedia({
+                audio: audioConstraints,
+                video: false
+            });
+
             localStreamRef.current = stream;
             setLocalStream(stream);
 
@@ -794,7 +880,8 @@ export function useWebRTC({
 
             voiceDetectorCleanupRef.current = createVoiceActivityDetector(
                 stream,
-                setIsSpeaking  // Removed verbose logging - voice detector works fine
+                setIsSpeaking,
+                // Optional: Pass sensitivity from store if VAD supports it
             );
 
             // Also do a quick audio level check to verify mic is working
@@ -1029,7 +1116,18 @@ export function useWebRTC({
             setIsVideoOn(false);
         } else {
             try {
-                const videoStream = await getUserMedia(true);
+                const { videoDeviceId } = useMediaStore.getState();
+                const videoConstraints = getVideoConstraints(videoDeviceId);
+
+                // Get new stream with video
+                const videoStream = await getUserMedia({
+                    audio: true, // Keep audio (will be replaced or merged)
+                    video: videoConstraints
+                });
+
+                // Note: This replaces the entire stream. 
+                // In a more advanced implementation, we would add the video track to the existing stream.
+
                 const videoTrack = videoStream.getVideoTracks()[0];
 
                 if (videoTrack) {

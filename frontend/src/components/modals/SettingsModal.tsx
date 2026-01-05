@@ -6,12 +6,16 @@ import {
     Palette,
     Mic,
     Bell,
+    Volume2,
+    Video,
+    Sliders,
     LogOut,
     ChevronRight
 } from 'lucide-react';
 import { useSettingsStore, type SettingsTab } from '@/stores/settingsStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
+import { useMediaStore } from '@/stores/mediaStore';
 import type { User } from '@/types';
 
 // Settings category definition
@@ -94,10 +98,10 @@ export function SettingsModal() {
                                         <button
                                             key={category.id}
                                             onClick={() => setActiveTab(category.id)}
-                                            className={`w-full flex items-center gap-3 px-2.5 py-1.5 rounded text-left transition-colors ${activeTab === category.id
+                                            className={`w - full flex items - center gap - 3 px - 2.5 py - 1.5 rounded text - left transition - colors ${activeTab === category.id
                                                 ? 'bg-background-modifier-selected text-white'
                                                 : 'text-text-muted hover:bg-background-modifier-hover hover:text-text-normal'
-                                                }`}
+                                                } `}
                                         >
                                             {category.icon}
                                             <span className="text-sm font-medium">{category.label}</span>
@@ -489,17 +493,17 @@ function AppearancePanel() {
                         <button
                             key={t.id}
                             onClick={() => setTheme(t.id)}
-                            className={`p-3 bg-[#1e1f22] rounded-lg border-2 text-center transition-colors ${theme === t.id
+                            className={`p - 3 bg - [#1e1f22] rounded - lg border - 2 text - center transition - colors ${theme === t.id
                                 ? 'border-discord-primary'
                                 : 'border-transparent hover:bg-[#2a2b2f] hover:border-white/20'
-                                }`}
+                                } `}
                         >
                             <div
                                 className="w-full h-16 rounded mb-2"
                                 style={{ backgroundColor: t.preview }}
                             />
-                            <span className={`text-sm font-medium ${theme === t.id ? 'text-white' : 'text-text-muted'
-                                }`}>
+                            <span className={`text - sm font - medium ${theme === t.id ? 'text-white' : 'text-text-muted'
+                                } `}>
                                 {t.label}
                             </span>
                         </button>
@@ -514,33 +518,180 @@ function AppearancePanel() {
  * Voice & Video Panel
  */
 function VoiceVideoPanel() {
+    const {
+        inputDeviceId, setInputDeviceId,
+        outputDeviceId, setOutputDeviceId,
+        videoDeviceId, setVideoDeviceId,
+        echoCancellation, setEchoCancellation,
+        noiseSuppression, setNoiseSuppression,
+        autoGainControl, setAutoGainControl,
+        inputVolume, setInputVolume,
+        outputVolume, setOutputVolume
+    } = useMediaStore();
+
+    const [devices, setDevices] = useState<{
+        audioinput: MediaDeviceInfo[];
+        audiooutput: MediaDeviceInfo[];
+        videoinput: MediaDeviceInfo[];
+    }>({ audioinput: [], audiooutput: [], videoinput: [] });
+
+    useEffect(() => {
+        const getDevices = async () => {
+            try {
+                // Request permission first to get device labels
+                // Note: user might have already granted it
+                const devs = await navigator.mediaDevices.enumerateDevices();
+                setDevices({
+                    audioinput: devs.filter(d => d.kind === 'audioinput'),
+                    audiooutput: devs.filter(d => d.kind === 'audiooutput'),
+                    videoinput: devs.filter(d => d.kind === 'videoinput')
+                });
+            } catch (err) {
+                console.error("Failed to enumerate devices", err);
+            }
+        };
+        getDevices();
+
+        navigator.mediaDevices.addEventListener('devicechange', getDevices);
+        return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+    }, []);
+
     return (
         <div>
             <h2 className="text-xl font-bold text-text-heading mb-5">Voice & Video</h2>
 
-            <div className="space-y-4">
-                {/* Input Device */}
+            <div className="space-y-6">
+                {/* Voice Settings */}
+                <div className="grid grid-cols-2 gap-4">
+                    {/* Input Device */}
+                    <div className="bg-[#232428] rounded-lg p-4">
+                        <h3 className="font-semibold text-text-heading mb-3 flex items-center gap-2">
+                            <Mic size={16} /> Input Device
+                        </h3>
+                        <select
+                            value={inputDeviceId}
+                            onChange={(e) => setInputDeviceId(e.target.value)}
+                            className="w-full p-2.5 bg-[#1e1f22] text-text-normal rounded focus:outline-none focus:ring-2 focus:ring-discord-primary"
+                        >
+                            <option value="default">Default</option>
+                            {devices.audioinput.map(d => (
+                                <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId.slice(0, 5)}...`}</option>
+                            ))}
+                        </select>
+
+                        <div className="mt-4">
+                            <div className="flex justify-between text-xs font-semibold text-text-muted mb-1 uppercase">
+                                <span>Input Volume</span>
+                                <span>{inputVolume}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0" max="200"
+                                value={inputVolume}
+                                onChange={(e) => setInputVolume(parseInt(e.target.value))}
+                                className="w-full accent-discord-primary"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Output Device */}
+                    <div className="bg-[#232428] rounded-lg p-4">
+                        <h3 className="font-semibold text-text-heading mb-3 flex items-center gap-2">
+                            <Volume2 size={16} /> Output Device
+                        </h3>
+                        <select
+                            value={outputDeviceId}
+                            onChange={(e) => setOutputDeviceId(e.target.value)}
+                            className="w-full p-2.5 bg-[#1e1f22] text-text-normal rounded focus:outline-none focus:ring-2 focus:ring-discord-primary"
+                        >
+                            <option value="default">Default</option>
+                            {devices.audiooutput.map(d => (
+                                <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId.slice(0, 5)}...`}</option>
+                            ))}
+                        </select>
+
+                        <div className="mt-4">
+                            <div className="flex justify-between text-xs font-semibold text-text-muted mb-1 uppercase">
+                                <span>Output Volume</span>
+                                <span>{outputVolume}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0" max="200"
+                                value={outputVolume}
+                                onChange={(e) => setOutputVolume(parseInt(e.target.value))}
+                                className="w-full accent-discord-primary"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Video Settings */}
                 <div className="bg-[#232428] rounded-lg p-4">
-                    <h3 className="font-semibold text-text-heading mb-3">Input Device</h3>
-                    <select className="w-full p-2.5 bg-[#1e1f22] text-text-normal rounded focus:outline-none focus:ring-2 focus:ring-discord-primary">
-                        <option>Default Microphone</option>
+                    <h3 className="font-semibold text-text-heading mb-3 flex items-center gap-2">
+                        <Video size={16} /> Camera
+                    </h3>
+                    <select
+                        value={videoDeviceId}
+                        onChange={(e) => setVideoDeviceId(e.target.value)}
+                        className="w-full p-2.5 bg-[#1e1f22] text-text-normal rounded focus:outline-none focus:ring-2 focus:ring-discord-primary"
+                    >
+                        <option value="default">Default</option>
+                        {devices.videoinput.map(d => (
+                            <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0, 5)}...`}</option>
+                        ))}
                     </select>
                 </div>
 
-                {/* Output Device */}
+                {/* Advanced Processing */}
                 <div className="bg-[#232428] rounded-lg p-4">
-                    <h3 className="font-semibold text-text-heading mb-3">Output Device</h3>
-                    <select className="w-full p-2.5 bg-[#1e1f22] text-text-normal rounded focus:outline-none focus:ring-2 focus:ring-discord-primary">
-                        <option>Default Speakers</option>
-                    </select>
-                </div>
+                    <h3 className="font-semibold text-text-heading mb-4 flex items-center gap-2">
+                        <Sliders size={16} /> Advanced Voice Processing
+                    </h3>
 
-                {/* Camera */}
-                <div className="bg-[#232428] rounded-lg p-4">
-                    <h3 className="font-semibold text-text-heading mb-3">Camera</h3>
-                    <select className="w-full p-2.5 bg-[#1e1f22] text-text-normal rounded focus:outline-none focus:ring-2 focus:ring-discord-primary">
-                        <option>Default Camera</option>
-                    </select>
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h4 className="font-medium text-text-normal">Echo Cancellation</h4>
+                                <p className="text-xs text-text-muted">Prevents echo when using speakers</p>
+                            </div>
+                            <button
+                                onClick={() => setEchoCancellation(!echoCancellation)}
+                                className={`w - 10 h - 6 rounded - full relative transition - colors ${echoCancellation ? 'bg-discord-green' : 'bg-gray-500'} `}
+                            >
+                                <div className={`absolute top - 1 left - 1 w - 4 h - 4 rounded - full bg - white transition - transform ${echoCancellation ? 'translate-x-4' : 'translate-x-0'} `} />
+                            </button>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h4 className="font-medium text-text-normal flex items-center gap-2">
+                                    Noise Suppression
+                                    <span className="bg-discord-brand text-white text-[10px] px-1 rounded uppercase font-bold">Krisp</span>
+                                </h4>
+                                <p className="text-xs text-text-muted">Suppresses background noise (fans, typing)</p>
+                            </div>
+                            <button
+                                onClick={() => setNoiseSuppression(!noiseSuppression)}
+                                className={`w - 10 h - 6 rounded - full relative transition - colors ${noiseSuppression ? 'bg-discord-green' : 'bg-gray-500'} `}
+                            >
+                                <div className={`absolute top - 1 left - 1 w - 4 h - 4 rounded - full bg - white transition - transform ${noiseSuppression ? 'translate-x-4' : 'translate-x-0'} `} />
+                            </button>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h4 className="font-medium text-text-normal">Automatic Gain Control</h4>
+                                <p className="text-xs text-text-muted">Automatically adjusts your microphone volume</p>
+                            </div>
+                            <button
+                                onClick={() => setAutoGainControl(!autoGainControl)}
+                                className={`w - 10 h - 6 rounded - full relative transition - colors ${autoGainControl ? 'bg-discord-green' : 'bg-gray-500'} `}
+                            >
+                                <div className={`absolute top - 1 left - 1 w - 4 h - 4 rounded - full bg - white transition - transform ${autoGainControl ? 'translate-x-4' : 'translate-x-0'} `} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -573,12 +724,12 @@ function NotificationsPanel({
                         </div>
                         <button
                             onClick={() => onSoundsToggle(!soundsEnabled)}
-                            className={`relative w-12 h-6 rounded-full transition-colors ${soundsEnabled ? 'bg-green-500' : 'bg-gray-600'
-                                }`}
+                            className={`relative w - 12 h - 6 rounded - full transition - colors ${soundsEnabled ? 'bg-green-500' : 'bg-gray-600'
+                                } `}
                         >
                             <div
-                                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${soundsEnabled ? 'translate-x-6' : 'translate-x-0'
-                                    }`}
+                                className={`absolute top - 0.5 left - 0.5 w - 5 h - 5 bg - white rounded - full transition - transform ${soundsEnabled ? 'translate-x-6' : 'translate-x-0'
+                                    } `}
                             />
                         </button>
                     </div>
