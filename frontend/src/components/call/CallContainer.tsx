@@ -63,7 +63,13 @@ export function CallContainer({
 
         // Remote screen shares - use screenStream
         participants.forEach(p => {
+            console.log('[CallContainer] Participant:', p.displayName,
+                'isScreenSharing:', p.isScreenSharing,
+                'hasScreenStream:', !!p.screenStream,
+                'screenStream tracks:', p.screenStream?.getTracks().length ?? 0);
+
             if (p.isScreenSharing && p.screenStream) {
+                console.log('[CallContainer] ✅ Adding remote screen share card for:', p.displayName);
                 shares.push({
                     odId: `${p.odId}-screen`,
                     displayName: `${p.displayName}'s screen`,
@@ -73,6 +79,7 @@ export function CallContainer({
             }
         });
 
+        console.log('[CallContainer] Total screen shares:', shares.length, shares.map(s => s.displayName));
         return shares;
     }, [isLocalScreenSharing, localScreenStream, localDisplayName, participants]);
 
