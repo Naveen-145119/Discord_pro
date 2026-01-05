@@ -231,6 +231,7 @@ export function useWebRTC({
 
             // Log detailed track info
             const track = event.track;
+            const trackSettings = track.getSettings();
             console.log('[WebRTC] Received track details:', {
                 kind: track.kind,
                 id: track.id,
@@ -238,7 +239,25 @@ export function useWebRTC({
                 muted: track.muted,
                 readyState: track.readyState,
                 streamId: stream?.id,
+                label: track.label,
+                displaySurface: trackSettings.displaySurface,
+                width: trackSettings.width,
+                height: trackSettings.height,
             });
+
+            // Detect if this is a screen share track
+            // Screen shares have displaySurface property or are typically larger than camera
+            const isScreenShareTrack = track.kind === 'video' && (
+                trackSettings.displaySurface === 'monitor' ||
+                trackSettings.displaySurface === 'window' ||
+                trackSettings.displaySurface === 'browser' ||
+                (trackSettings.width && trackSettings.width >= 1280) ||
+                track.label.toLowerCase().includes('screen')
+            );
+
+            if (isScreenShareTrack) {
+                console.log('[WebRTC] 📺 Detected SCREEN SHARE track from peer:', peerId);
+            }
 
             // Monitor track state changes - IMPORTANT: Remove track from participant when it ends
             track.onended = () => {
@@ -292,6 +311,30 @@ export function useWebRTC({
             setParticipants((prev) => {
                 const updated = new Map(prev);
                 const existing = updated.get(peerId);
+
+                // For screen share tracks, create/update screenStream separately
+                if (isScreenShareTrack && track.kind === 'video') {
+                    console.log('[WebRTC] 📺 Storing screen share track for peer:', peerId);
+                    const screenMediaStream = new MediaStream();
+                    screenMediaStream.addTrack(track);
+
+                    updated.set(peerId, {
+                        odId: peerId,
+                        displayName: existing?.displayName || 'Unknown',
+                        avatarUrl: existing?.avatarUrl,
+                        isMuted: existing?.isMuted ?? false,
+                        isDeafened: existing?.isDeafened ?? false,
+                        isVideoOn: existing?.isVideoOn ?? false,
+                        isScreenSharing: true,
+                        isSpeaking: existing?.isSpeaking ?? false,
+                        stream: existing?.stream, // Keep existing camera stream
+                        cameraStream: existing?.cameraStream,
+                        screenStream: screenMediaStream, // Store screen share separately
+                    });
+
+                    console.log('[WebRTC] ✅ Screen share stored for peer:', peerId);
+                    return updated;
+                }
 
                 // ALWAYS create a new MediaStream to ensure React detects changes
                 const newStream = new MediaStream();
@@ -349,16 +392,20 @@ export function useWebRTC({
                 updated.set(peerId, {
                     odId: peerId,
                     displayName: existing?.displayName || 'Unknown',
+                    avatarUrl: existing?.avatarUrl,
                     isMuted: existing?.isMuted ?? false,
                     isDeafened: existing?.isDeafened ?? false,
                     isVideoOn: liveVideoTracks.length > 0,
-                    isScreenSharing: existing?.isScreenSharing ?? false,
+                    isScreenSharing: existing?.isScreenSharing ?? false, // Preserve screen share state
                     isSpeaking: false,
                     stream: newStream, // Always new stream object
+                    cameraStream: liveVideoTracks.length > 0 ? newStream : existing?.cameraStream,
+                    screenStream: existing?.screenStream, // Preserve screen share stream
                 });
 
                 console.log('[WebRTC] Updated participant:', peerId,
                     'audio:', liveAudioTracks.length, 'video:', liveVideoTracks.length,
+                    'isScreenSharing:', existing?.isScreenSharing ?? false,
                     'tracks:', newStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
 
                 return updated;
