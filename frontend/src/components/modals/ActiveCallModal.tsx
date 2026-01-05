@@ -14,16 +14,12 @@ import {
     Clock,
     Headphones,
     HeadphoneOff,
-    MessageSquare,
-    Send,
-    X
+    MessageSquare
 } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
-import { CallContainer, DeviceSettingsPopover } from '@/components/call';
-import { MessageList } from '@/components/chat';
-import { useMessageStore } from '@/stores/messageStore';
+import { CallContainer, DeviceSettingsPopover, InCallChatSection } from '@/components/call';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
@@ -90,21 +86,9 @@ export function ActiveCallModal({
     const [callDuration, setCallDuration] = useState(0);
     const [connectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
 
-    // Chat state
+    // Chat state - simple toggle (InCallChatSection handles all messaging internally)
     const [showChat, setShowChat] = useState(false);
-    const [messageInput, setMessageInput] = useState('');
-    const [isSendingMessage, setIsSendingMessage] = useState(false);
-
-    // Message store
-    const { messages, fetchMessages, sendMessage, isLoading: isLoadingMessages } = useMessageStore();
     const channelId = call.channelId;
-
-    // Fetch messages when chat is opened
-    useEffect(() => {
-        if (showChat && channelId) {
-            fetchMessages(channelId);
-        }
-    }, [showChat, channelId, fetchMessages]);
 
     // Convert participants Map to Array for CallContainer
     const participantsArray = useMemo(() => Array.from(participants.values()), [participants]);
@@ -477,22 +461,6 @@ export function ActiveCallModal({
         }
     };
 
-    // Handle sending chat message
-    const handleSendMessage = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!messageInput.trim() || isSendingMessage || !channelId || !currentUserId) return;
-
-        setIsSendingMessage(true);
-        try {
-            await sendMessage(channelId, currentUserId, messageInput.trim());
-            setMessageInput('');
-        } catch (error) {
-            console.error('Failed to send message:', error);
-        } finally {
-            setIsSendingMessage(false);
-        }
-    }, [messageInput, isSendingMessage, channelId, currentUserId, sendMessage]);
-
     const hasRemoteVideo = remoteStream?.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
 
     // Detect if remote video is likely a screen share (check video track settings)
@@ -747,50 +715,15 @@ export function ActiveCallModal({
                 </button>
             </div>
 
-            {/* Chat Section - Collapsible */}
-            {showChat && (
-                <div className="h-[40%] flex flex-col bg-[#2b2d31] border-t border-[#1e1f22]">
-                    {/* Chat Header */}
-                    <div className="flex items-center justify-between px-4 py-2 border-b border-[#1e1f22]">
-                        <span className="text-sm font-medium text-white">Chat with {friend.displayName}</span>
-                        <button
-                            onClick={() => setShowChat(false)}
-                            className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white"
-                        >
-                            <X size={18} />
-                        </button>
-                    </div>
-
-                    {/* Message List */}
-                    <div className="flex-1 overflow-hidden">
-                        <MessageList
-                            messages={messages}
-                            currentUserId={currentUserId}
-                            friend={friend}
-                            isLoading={isLoadingMessages}
-                        />
-                    </div>
-
-                    {/* Message Input */}
-                    <form onSubmit={handleSendMessage} className="p-3 border-t border-[#1e1f22]">
-                        <div className="flex items-center gap-2 bg-[#383a40] rounded-lg px-3 py-2">
-                            <input
-                                type="text"
-                                value={messageInput}
-                                onChange={(e) => setMessageInput(e.target.value)}
-                                placeholder={`Message @${friend.displayName}`}
-                                className="flex-1 bg-transparent text-white placeholder:text-gray-500 focus:outline-none text-sm"
-                                disabled={isSendingMessage}
-                            />
-                            <button
-                                type="submit"
-                                disabled={!messageInput.trim() || isSendingMessage}
-                                className="p-1.5 text-discord-primary hover:text-discord-primary/80 disabled:text-gray-500 disabled:cursor-not-allowed"
-                            >
-                                <Send size={18} />
-                            </button>
-                        </div>
-                    </form>
+            {/* Chat Section - Collapsible with full messaging features */}
+            {showChat && channelId && (
+                <div className="h-[40%] border-t border-[#1e1f22]">
+                    <InCallChatSection
+                        channelId={channelId}
+                        currentUserId={currentUserId}
+                        friend={friend}
+                        onClose={() => setShowChat(false)}
+                    />
                 </div>
             )}
         </div>
