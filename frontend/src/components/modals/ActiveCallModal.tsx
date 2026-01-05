@@ -12,8 +12,6 @@ import {
     Minimize2,
     Signal,
     Clock,
-    Headphones,
-    HeadphoneOff,
     MessageSquare
 } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
@@ -600,124 +598,113 @@ export function ActiveCallModal({
                 </div>
             </div>
 
-            {/* Main Video Area - Takes full remaining space with padding for controls */}
-            <div className={`flex-1 relative flex items-center justify-center bg-[#1e1f22] overflow-hidden ${isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4 pb-24'
-                }`}>
-                {/* Use CallContainer for multi-participant grid layout */}
-                <CallContainer
-                    localStream={localStream}
-                    localDisplayName="You"
-                    isLocalMuted={isMuted}
-                    isLocalVideoOn={isVideoOn}
-                    isLocalSpeaking={isSpeaking}
-                    isLocalScreenSharing={isScreenSharing}
-                    localScreenStream={screenStream}
-                    participants={participantsArray}
-                    onStopScreenShare={onToggleScreenShare}
-                />
+            {/* Call Area with embedded control bar - shrinks when chat is visible */}
+            <div className={`${showChat ? 'flex-1' : 'flex-1'} relative flex flex-col bg-[#1e1f22] overflow-hidden`}>
+                {/* Video/Avatars Area */}
+                <div className={`flex-1 flex items-center justify-center ${isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4'}`}>
+                    <CallContainer
+                        localStream={localStream}
+                        localDisplayName="You"
+                        isLocalMuted={isMuted}
+                        isLocalVideoOn={isVideoOn}
+                        isLocalSpeaking={isSpeaking}
+                        isLocalScreenSharing={isScreenSharing}
+                        localScreenStream={screenStream}
+                        participants={participantsArray}
+                        onStopScreenShare={onToggleScreenShare}
+                    />
 
-                {/* Screen Share Indicator */}
-                {isScreenSharing && (
-                    <div className="absolute top-4 left-4 px-3 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm">
-                        <MonitorUp size={16} />
-                        You are sharing your screen
-                    </div>
-                )}
-            </div>
-
-            {/* Control Bar - Always visible, floating at bottom. In fullscreen with screen share, show on hover */}
-            <div className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1e1f22] via-[#1e1f22]/95 to-transparent ${isFullscreen && isRemoteScreenShare ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : ''
-                }`}>
-                <div className="flex items-center justify-center gap-2">
-                    {/* Mute with dropdown indicator */}
-                    <div className="relative group">
-                        <button
-                            onClick={onToggleMute}
-                            className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isMuted
-                                ? 'bg-red-500 text-white hover:bg-red-600'
-                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                                }`}
-                            title={isMuted ? 'Unmute' : 'Mute'}
-                        >
-                            {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-                        </button>
-                        {/* Dropdown hint chevron */}
-                        <div className="absolute -right-1 bottom-0 w-4 h-4 bg-[#3b3d44] rounded-full flex items-center justify-center text-white text-[8px] group-hover:bg-[#4b4d54]">
-                            ▼
+                    {/* Screen Share Indicator */}
+                    {isScreenSharing && (
+                        <div className="absolute top-4 left-4 px-3 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm">
+                            <MonitorUp size={16} />
+                            You are sharing your screen
                         </div>
-                    </div>
-
-                    {/* Device Settings */}
-                    <DeviceSettingsPopover />
-
-                    {/* Deafen */}
-                    <button
-                        onClick={onToggleDeafen}
-                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isDeafened
-                            ? 'bg-red-500 text-white hover:bg-red-600'
-                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                            }`}
-                        title={isDeafened ? 'Undeafen' : 'Deafen'}
-                    >
-                        {isDeafened ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
-                    </button>
-
-                    {/* Video with dropdown indicator - GREEN when ON (Discord style) */}
-                    <div className="relative group">
-                        <button
-                            onClick={onToggleVideo}
-                            className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isVideoOn
-                                ? 'bg-green-500 text-white hover:bg-green-600'
-                                : 'bg-red-500 text-white hover:bg-red-600'
-                                }`}
-                            title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
-                        >
-                            {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
-                        </button>
-                        {/* Dropdown hint chevron */}
-                        <div className={`absolute -right-1 bottom-0 w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] ${isVideoOn ? 'bg-green-600' : 'bg-red-600'}`}>
-                            ▼
-                        </div>
-                    </div>
+                    )}
                 </div>
 
-                {/* Screen Share */}
-                <button
-                    onClick={onToggleScreenShare}
-                    className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isScreenSharing
-                        ? 'bg-green-500 text-white hover:bg-green-600'
-                        : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                        }`}
-                    title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
-                >
-                    <MonitorUp size={22} />
-                </button>
+                {/* Control Bar - Always inside call area, floating at bottom */}
+                <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 p-3 bg-[#1e1f22]/90 backdrop-blur-sm rounded-lg ${isFullscreen && isRemoteScreenShare ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : ''}`}>
+                    <div className="flex items-center gap-2">
+                        {/* Mute with dropdown indicator */}
+                        <div className="relative group">
+                            <button
+                                onClick={onToggleMute}
+                                className={`p-3 rounded-full transition-all hover:scale-105 ${isMuted
+                                    ? 'bg-red-500 text-white hover:bg-red-600'
+                                    : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                                    }`}
+                                title={isMuted ? 'Unmute' : 'Mute'}
+                            >
+                                {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                            </button>
+                            <div className="absolute -right-0.5 -bottom-0.5 w-3 h-3 bg-[#3b3d44] rounded-full flex items-center justify-center text-white text-[6px] group-hover:bg-[#4b4d54]">
+                                ▼
+                            </div>
+                        </div>
 
-                {/* Chat Toggle */}
-                <button
-                    onClick={() => setShowChat(!showChat)}
-                    className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${showChat
-                        ? 'bg-discord-primary text-white hover:bg-discord-primary/80'
-                        : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                        }`}
-                    title={showChat ? 'Hide Chat' : 'Show Chat'}
-                >
-                    <MessageSquare size={22} />
-                </button>
+                        {/* Video with dropdown indicator */}
+                        <div className="relative group">
+                            <button
+                                onClick={onToggleVideo}
+                                className={`p-3 rounded-full transition-all hover:scale-105 ${isVideoOn
+                                    ? 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                                    : 'bg-red-500 text-white hover:bg-red-600'
+                                    }`}
+                                title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
+                            >
+                                {isVideoOn ? <Video size={20} /> : <VideoOff size={20} />}
+                            </button>
+                            <div className={`absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full flex items-center justify-center text-white text-[6px] ${isVideoOn ? 'bg-[#4b4d54]' : 'bg-red-600'}`}>
+                                ▼
+                            </div>
+                        </div>
 
-                {/* End Call */}
-                <button
-                    onClick={onEndCall}
-                    className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105 shadow-lg"
-                    title="End Call"
-                >
-                    <Phone size={22} className="rotate-[135deg]" />
-                </button>
+                        {/* Separator */}
+                        <div className="w-px h-8 bg-[#4b4d54] mx-1" />
+
+                        {/* Chat Toggle */}
+                        <button
+                            onClick={() => setShowChat(!showChat)}
+                            className={`p-3 rounded-full transition-all hover:scale-105 ${showChat
+                                ? 'bg-white/20 text-white'
+                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                                }`}
+                            title={showChat ? 'Hide Chat' : 'Show Chat'}
+                        >
+                            <MessageSquare size={20} />
+                        </button>
+
+                        {/* Device Settings */}
+                        <DeviceSettingsPopover />
+
+                        {/* Screen Share */}
+                        <button
+                            onClick={onToggleScreenShare}
+                            className={`p-3 rounded-full transition-all hover:scale-105 ${isScreenSharing
+                                ? 'bg-green-500 text-white hover:bg-green-600'
+                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                                }`}
+                            title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
+                        >
+                            <MonitorUp size={20} />
+                        </button>
+
+                        {/* End Call */}
+                        <button
+                            onClick={onEndCall}
+                            className="p-3 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105"
+                            title="End Call"
+                        >
+                            <Phone size={20} className="rotate-[135deg]" />
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            {/* Chat Section - Collapsible with full messaging features */}
+            {/* Chat Section - Takes fixed height when visible */}
             {showChat && channelId && (
-                <div className="h-[40%] border-t border-[#1e1f22]">
+                <div className="h-[280px] flex-shrink-0">
                     <InCallChatSection
                         channelId={channelId}
                         currentUserId={currentUserId}
