@@ -232,6 +232,8 @@ export function useWebRTC({
             // Log detailed track info
             const track = event.track;
             const trackSettings = track.getSettings();
+            const connectionState = pc.connectionState;
+
             console.log('[WebRTC] Received track details:', {
                 kind: track.kind,
                 id: track.id,
@@ -243,17 +245,35 @@ export function useWebRTC({
                 displaySurface: trackSettings.displaySurface,
                 width: trackSettings.width,
                 height: trackSettings.height,
+                connectionState: connectionState,
             });
 
             // Detect if this is a screen share track
-            // Screen shares have displaySurface property or are typically larger than camera
+            // Strategy: In DM calls, the initial connection is audio-only.
+            // If we receive a VIDEO track during renegotiation (connection is already established),
+            // it's likely a screen share since video calls would have had video from the start.
+            // Also check displaySurface if available (local detection)
+            const isRenegotiation = connectionState === 'connected' || connectionState === 'connecting';
+            const hasExistingParticipant = participants.has(peerId);
+
             const isScreenShareTrack = track.kind === 'video' && (
+                // Local detection (works when sharing)
                 trackSettings.displaySurface === 'monitor' ||
                 trackSettings.displaySurface === 'window' ||
                 trackSettings.displaySurface === 'browser' ||
-                (trackSettings.width && trackSettings.width >= 1280) ||
+                // Remote detection: if we already have a connection and receive new video = screen share
+                (isRenegotiation && hasExistingParticipant) ||
+                // Fallback: large dimensions or screen in label
+                (trackSettings.width && trackSettings.width >= 1920) ||
                 track.label.toLowerCase().includes('screen')
             );
+
+            console.log('[WebRTC] Screen share detection:', {
+                isRenegotiation,
+                hasExistingParticipant,
+                trackKind: track.kind,
+                result: isScreenShareTrack
+            });
 
             if (isScreenShareTrack) {
                 console.log('[WebRTC] 📺 Detected SCREEN SHARE track from peer:', peerId);
