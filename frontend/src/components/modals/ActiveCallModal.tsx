@@ -23,6 +23,8 @@ interface ActiveCallModalProps {
     call: ActiveCall;
     friend: User;
     currentUserId: string;
+    localDisplayName: string;
+    localAvatarUrl?: string;
     isMuted: boolean;
     isDeafened: boolean;
     isVideoOn: boolean;
@@ -47,6 +49,8 @@ export function ActiveCallModal({
     call,
     friend,
     currentUserId,
+    localDisplayName,
+    localAvatarUrl,
     isMuted,
     isDeafened: _isDeafened,
     isVideoOn,
@@ -604,7 +608,8 @@ export function ActiveCallModal({
                 <div className={`flex-1 flex items-center justify-center ${isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4'}`}>
                     <CallContainer
                         localStream={localStream}
-                        localDisplayName="You"
+                        localDisplayName={localDisplayName}
+                        localAvatarUrl={localAvatarUrl}
                         isLocalMuted={isMuted}
                         isLocalVideoOn={isVideoOn}
                         isLocalSpeaking={isSpeaking}

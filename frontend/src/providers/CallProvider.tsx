@@ -158,6 +158,8 @@ export function CallProvider({ children }: CallProviderProps) {
                             }}
                             friend={currentFriend || callFriend!}
                             currentUserId={authUser?.$id || ''}
+                            localDisplayName={authUser?.displayName || 'You'}
+                            localAvatarUrl={authUser?.avatarUrl || undefined}
                             isMuted={call.isMuted}
                             isDeafened={call.isDeafened}
                             isVideoOn={call.isVideoOn}

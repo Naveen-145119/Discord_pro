@@ -114,12 +114,29 @@ export function useCall(): UseCallReturn {
         return call.callerId === user?.$id;
     }, [currentCall, incomingCall, user?.$id]);
 
+    // Get target user info (friend's displayName and avatarUrl) for participant display
+    const targetUserInfo = useMemo(() => {
+        const call = currentCall || incomingCall;
+        if (!call) return undefined;
+        // If I'm the caller, target is receiver; if I'm receiver, target is caller
+        const targetUser = call.callerId === user?.$id ? call.receiver : call.caller;
+        if (targetUser) {
+            return {
+                displayName: targetUser.displayName || 'User',
+                avatarUrl: targetUser.avatarUrl || undefined, // Convert null to undefined
+            };
+        }
+        return undefined;
+    }, [currentCall, incomingCall, user?.$id]);
+
     const webRTC = useWebRTC({
         channelId: currentCall?.channelId || incomingCall?.channelId || '',
         userId: user?.$id || '',
         displayName: user?.displayName || 'User',
+        avatarUrl: user?.avatarUrl || undefined, // Convert null to undefined
         mode: 'dm',
         targetUserId,
+        targetUserInfo,
         isInitiator,
     });
 

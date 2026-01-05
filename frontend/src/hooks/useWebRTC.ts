@@ -19,8 +19,10 @@ interface UseWebRTCProps {
     channelId: string;
     userId: string;
     displayName: string;
+    avatarUrl?: string;
     mode?: 'channel' | 'dm';
     targetUserId?: string;
+    targetUserInfo?: { displayName: string; avatarUrl?: string };
     isInitiator?: boolean;
 }
 
@@ -48,8 +50,10 @@ export function useWebRTC({
     channelId,
     userId,
     displayName: _displayName,
+    avatarUrl: _avatarUrl,
     mode = 'channel',
     targetUserId,
+    targetUserInfo,
     isInitiator = true,
 }: UseWebRTCProps): UseWebRTCReturn {
     const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -91,6 +95,9 @@ export function useWebRTC({
     const micGainNodeRef = useRef<GainNode | null>(null);
     const systemGainNodeRef = useRef<GainNode | null>(null);
 
+    // Target user info for participant display (displayName, avatarUrl)
+    const targetUserInfoRef = useRef(targetUserInfo);
+
     useEffect(() => {
         channelIdRef.current = channelId;
     }, [channelId]);
@@ -98,6 +105,10 @@ export function useWebRTC({
     useEffect(() => {
         targetUserIdRef.current = targetUserId;
     }, [targetUserId]);
+
+    useEffect(() => {
+        targetUserInfoRef.current = targetUserInfo;
+    }, [targetUserInfo]);
 
     const { subscribe: subscribeRealtime } = useRealtime();
 
@@ -366,8 +377,8 @@ export function useWebRTC({
 
                     updated.set(peerId, {
                         odId: peerId,
-                        displayName: existing?.displayName || 'Unknown',
-                        avatarUrl: existing?.avatarUrl,
+                        displayName: existing?.displayName || targetUserInfoRef.current?.displayName || 'User',
+                        avatarUrl: existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl,
                         isMuted: existing?.isMuted ?? false,
                         isDeafened: existing?.isDeafened ?? false,
                         isVideoOn: existing?.isVideoOn ?? false,
@@ -437,8 +448,8 @@ export function useWebRTC({
 
                 updated.set(peerId, {
                     odId: peerId,
-                    displayName: existing?.displayName || 'Unknown',
-                    avatarUrl: existing?.avatarUrl,
+                    displayName: existing?.displayName || targetUserInfoRef.current?.displayName || 'User',
+                    avatarUrl: existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl,
                     isMuted: existing?.isMuted ?? false,
                     isDeafened: existing?.isDeafened ?? false,
                     isVideoOn: liveVideoTracks.length > 0,
