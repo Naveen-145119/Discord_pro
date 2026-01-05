@@ -17,6 +17,7 @@ export interface ProcessedMessage {
 interface MessageListProps {
     messages: Message[];
     currentUserId: string;
+    currentUser?: { displayName: string; avatarUrl?: string | null };
     friend?: User | null;
     onReply?: (message: Message) => void;
     onEdit?: (message: Message) => void;
@@ -88,6 +89,7 @@ function processMessages(messages: Message[]): ProcessedMessage[] {
 export function MessageList({
     messages,
     currentUserId,
+    currentUser,
     friend,
     onReply,
     onEdit,
@@ -163,6 +165,7 @@ export function MessageList({
                             message={processed.message}
                             isHeader={processed.isHeader}
                             isOwnMessage={processed.message.authorId === currentUserId}
+                            currentUser={currentUser}
                             friend={friend}
                             onReply={onReply}
                             onEdit={onEdit}

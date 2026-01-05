@@ -5,15 +5,18 @@ interface ReplyBarProps {
     message: Message;
     friend?: User | null;
     currentUserId: string;
+    currentUser?: { displayName: string };
     onCancel: () => void;
 }
 
 /**
  * Reply bar component - shows "Replying to @User" with curved line
  */
-export function ReplyBar({ message, friend, currentUserId, onCancel }: ReplyBarProps) {
+export function ReplyBar({ message, friend, currentUserId, currentUser, onCancel }: ReplyBarProps) {
     const isOwnMessage = message.authorId === currentUserId;
-    const displayName = isOwnMessage ? 'yourself' : (friend?.displayName || 'User');
+    const displayName = isOwnMessage
+        ? (currentUser?.displayName || 'yourself')
+        : (friend?.displayName || 'User');
 
     return (
         <div className="flex items-center gap-2 px-4 py-2 bg-background-secondary border-l-2 border-discord-primary rounded-t-lg">

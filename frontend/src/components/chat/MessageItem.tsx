@@ -23,6 +23,7 @@ interface MessageItemProps {
     message: Message;
     isHeader: boolean;
     isOwnMessage: boolean;
+    currentUser?: { displayName: string; avatarUrl?: string | null };
     friend?: User | null;
     onReply?: (message: Message) => void;
     onEdit?: (message: Message) => void;
@@ -44,6 +45,7 @@ export function MessageItem({
     message,
     isHeader,
     isOwnMessage,
+    currentUser,
     friend,
     onReply,
     onEdit,
@@ -122,9 +124,15 @@ export function MessageItem({
         );
     }
 
-    const displayName = isOwnMessage ? 'You' : (friend?.displayName || 'User');
-    const avatarInitial = isOwnMessage ? 'Y' : (friend?.displayName?.charAt(0) || '?');
-    const avatarUrl = isOwnMessage ? null : friend?.avatarUrl;
+    const displayName = isOwnMessage
+        ? (currentUser?.displayName || 'You')
+        : (friend?.displayName || 'User');
+    const avatarInitial = isOwnMessage
+        ? (currentUser?.displayName?.charAt(0) || 'Y')
+        : (friend?.displayName?.charAt(0) || '?');
+    const avatarUrl = isOwnMessage
+        ? currentUser?.avatarUrl
+        : friend?.avatarUrl;
 
     return (
         <MessageContextMenu

@@ -54,11 +54,12 @@ const SAMPLE_GIFS: Record<string, string[]> = {
 interface InCallChatSectionProps {
     channelId: string;
     currentUserId: string;
+    currentUser?: { displayName: string; avatarUrl?: string | null };
     friend: User;
     onClose: () => void;
 }
 
-export function InCallChatSection({ channelId, currentUserId, friend, onClose }: InCallChatSectionProps) {
+export function InCallChatSection({ channelId, currentUserId, currentUser, friend, onClose }: InCallChatSectionProps) {
     const {
         messages,
         hasMore,
@@ -193,6 +194,7 @@ export function InCallChatSection({ channelId, currentUserId, friend, onClose }:
                 <MessageList
                     messages={messages}
                     currentUserId={currentUserId}
+                    currentUser={currentUser}
                     friend={friend}
                     onReply={handleReply}
                     onEdit={handleEdit}
@@ -213,6 +215,7 @@ export function InCallChatSection({ channelId, currentUserId, friend, onClose }:
                 <ReplyBar
                     message={replyingTo}
                     currentUserId={currentUserId}
+                    currentUser={currentUser ? { displayName: currentUser.displayName } : undefined}
                     friend={friend}
                     onCancel={clearReplyingTo}
                 />

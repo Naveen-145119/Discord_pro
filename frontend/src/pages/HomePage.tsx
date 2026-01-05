@@ -119,10 +119,14 @@ export function HomePage() {
                                     className="channel-item w-full"
                                 >
                                     <div className="relative">
-                                        <div className="avatar w-8 h-8 bg-discord-primary">
-                                            <span className="text-xs font-medium text-white">
-                                                {dm.friend?.displayName?.charAt(0) || '?'}
-                                            </span>
+                                        <div className="avatar w-8 h-8 bg-discord-primary overflow-hidden">
+                                            {dm.friend?.avatarUrl ? (
+                                                <img src={dm.friend.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <span className="text-xs font-medium text-white">
+                                                    {dm.friend?.displayName?.charAt(0) || '?'}
+                                                </span>
+                                            )}
                                         </div>
                                         <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background-secondary ${dm.friend?.status === 'online' ? 'bg-green-500' : dm.friend?.status === 'idle' ? 'bg-yellow-500' : 'bg-gray-500'}`} />
                                     </div>
@@ -135,10 +139,14 @@ export function HomePage() {
 
                 <div className="px-2 py-2 bg-background-secondary-alt">
                     <div className="flex items-center gap-2 p-1 rounded hover:bg-background-modifier-hover">
-                        <div className="avatar w-8 h-8 bg-discord-primary">
-                            <span className="text-xs font-medium text-white">
-                                {user?.displayName?.charAt(0) || '?'}
-                            </span>
+                        <div className="avatar w-8 h-8 bg-discord-primary overflow-hidden">
+                            {user?.avatarUrl ? (
+                                <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="text-xs font-medium text-white">
+                                    {user?.displayName?.charAt(0) || '?'}
+                                </span>
+                            )}
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-text-normal truncate">
@@ -294,10 +302,14 @@ export function HomePage() {
                                                         key={request.$id}
                                                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-background-modifier-hover group"
                                                     >
-                                                        <div className="avatar w-10 h-10 bg-discord-primary">
-                                                            <span className="text-sm font-medium text-white">
-                                                                {request?.sender?.displayName?.charAt(0) || '?'}
-                                                            </span>
+                                                        <div className="avatar w-10 h-10 bg-discord-primary overflow-hidden">
+                                                            {request?.sender?.avatarUrl ? (
+                                                                <img src={request.sender.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <span className="text-sm font-medium text-white">
+                                                                    {request?.sender?.displayName?.charAt(0) || '?'}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
                                                             <p className="font-medium text-text-heading">
@@ -347,10 +359,14 @@ export function HomePage() {
                                                         key={request.$id}
                                                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-background-modifier-hover"
                                                     >
-                                                        <div className="avatar w-10 h-10 bg-discord-primary">
-                                                            <span className="text-sm font-medium text-white">
-                                                                {request?.receiver?.displayName?.charAt(0) || '?'}
-                                                            </span>
+                                                        <div className="avatar w-10 h-10 bg-discord-primary overflow-hidden">
+                                                            {request?.receiver?.avatarUrl ? (
+                                                                <img src={request.receiver.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <span className="text-sm font-medium text-white">
+                                                                    {request?.receiver?.displayName?.charAt(0) || '?'}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
                                                             <p className="font-medium text-text-heading">
@@ -419,10 +435,14 @@ function FriendItem({ friend, onRemove, onMessage, isLoading }: FriendItemProps)
     return (
         <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-background-modifier-hover group">
             <div className="relative">
-                <div className="avatar w-10 h-10 bg-discord-primary">
-                    <span className="text-sm font-medium text-white">
-                        {friend.displayName?.charAt(0) || '?'}
-                    </span>
+                <div className="avatar w-10 h-10 bg-discord-primary overflow-hidden">
+                    {friend.avatarUrl ? (
+                        <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                        <span className="text-sm font-medium text-white">
+                            {friend.displayName?.charAt(0) || '?'}
+                        </span>
+                    )}
                 </div>
                 <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-background-primary ${getStatusColor(friend.status)}`} />
             </div>

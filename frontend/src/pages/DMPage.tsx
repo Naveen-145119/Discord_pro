@@ -392,6 +392,7 @@ export function DMPage() {
                     <MessageList
                         messages={messages}
                         currentUserId={user?.$id || ''}
+                        currentUser={user ? { displayName: user.displayName, avatarUrl: user.avatarUrl } : undefined}
                         friend={friend}
                         onReply={handleReply}
                         onEdit={handleEdit}
@@ -428,6 +429,7 @@ export function DMPage() {
                         message={replyingTo}
                         friend={friend}
                         currentUserId={user?.$id || ''}
+                        currentUser={user ? { displayName: user.displayName } : undefined}
                         onCancel={clearReplyingTo}
                     />
                 )}

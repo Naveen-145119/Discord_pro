@@ -713,6 +713,7 @@ export function ActiveCallModal({
                     <InCallChatSection
                         channelId={channelId}
                         currentUserId={currentUserId}
+                        currentUser={{ displayName: localDisplayName, avatarUrl: localAvatarUrl }}
                         friend={friend}
                         onClose={() => setShowChat(false)}
                     />
