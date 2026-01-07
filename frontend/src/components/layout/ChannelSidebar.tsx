@@ -23,17 +23,15 @@ import {
     ChevronDown,
     Settings,
     Plus,
-    Mic,
-    Headphones,
     GripVertical
 } from 'lucide-react';
 import type { Server, Channel } from '@/types';
 import { VoiceConnectionPanel } from '@/components/call';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore, type ChannelReorderItem } from '@/stores/serverStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnreadStore } from '@/stores/unreadStore';
 import { usePermission, PERMISSIONS } from '@/hooks/usePermission';
+import { UserArea } from './UserArea';
 
 interface ChannelSidebarProps {
     server: Server;
@@ -267,49 +265,7 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
             <VoiceConnectionPanel />
 
             {/* User panel */}
-            <div className="p-2 bg-background-secondary-alt">
-                <div className="flex items-center gap-2 p-1 rounded hover:bg-background-modifier-hover">
-                    <div className="relative">
-                        <div className="avatar w-8 h-8 bg-discord-primary">
-                            <span className="text-xs font-medium text-white">
-                                {user?.displayName?.charAt(0) || '?'}
-                            </span>
-                        </div>
-                        <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-status-online rounded-full border-[3px] border-background-secondary-alt" />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-text-normal truncate">
-                            {user?.displayName}
-                        </p>
-                        <p className="text-xs text-text-muted truncate">
-                            Online
-                        </p>
-                    </div>
-
-                    <div className="flex items-center gap-0.5">
-                        <button
-                            className="p-1.5 rounded hover:bg-background-modifier-active text-interactive-normal hover:text-interactive-hover"
-                            title="Mute"
-                        >
-                            <Mic size={18} />
-                        </button>
-                        <button
-                            className="p-1.5 rounded hover:bg-background-modifier-active text-interactive-normal hover:text-interactive-hover"
-                            title="Deafen"
-                        >
-                            <Headphones size={18} />
-                        </button>
-                        <button
-                            onClick={() => useSettingsStore.getState().openSettings()}
-                            className="p-1.5 rounded hover:bg-background-modifier-active text-interactive-normal hover:text-interactive-hover"
-                            title="User Settings"
-                        >
-                            <Settings size={18} />
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <UserArea />
         </div>
     );
 }

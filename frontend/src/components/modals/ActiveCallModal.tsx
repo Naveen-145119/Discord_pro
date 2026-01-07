@@ -158,7 +158,7 @@ export function ActiveCallModal({
 
                     // Retry play with exponential backoff if blocked
                     const attemptPlay = (attempt = 1) => {
-                        remoteVideoRef.current?.play().catch((err) => {
+                        remoteVideoRef.current?.play().catch(() => {
                             if (attempt < 3) {
                                 setTimeout(() => attemptPlay(attempt + 1), 100 * attempt);
                             }
