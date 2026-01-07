@@ -3,7 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useCall, type CallType, type ActiveCall } from '@/hooks/useCall';
 import { IncomingCallModal } from '@/components/modals/IncomingCallModal';
 import { ActiveCallModal } from '@/components/modals/ActiveCallModal';
-import { MiniPlayer } from '@/components/call';
+import { MiniPlayer, CallAudioManager } from '@/components/call';
 import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
@@ -151,6 +151,14 @@ export function CallProvider({ children }: CallProviderProps) {
                 />
             )}
 
+            {/* Persistent Audio Manager handles playback regardless of UI state */}
+            {call.remoteStream && (
+                <CallAudioManager
+                    remoteStream={call.remoteStream}
+                    remoteStreamVersion={call.remoteStreamVersion}
+                />
+            )}
+
             {/* Active Call - Full Modal or Mini Player */}
             <AnimatePresence mode="wait">
                 {/* Show when we have currentCall OR when we're starting a call */}
@@ -196,6 +204,7 @@ export function CallProvider({ children }: CallProviderProps) {
                             participants={call.participants}
                             remoteParticipant={call.remoteParticipant}
                             isCalling={isStartingCall || call.isCalling}
+                            callDuration={callDuration}
                             onEndCall={call.endCall}
                             onToggleMute={call.toggleMute}
                             onToggleDeafen={call.toggleDeafen}

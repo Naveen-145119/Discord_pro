@@ -19,3 +19,4 @@ export { DeviceSettingsPopover } from './DeviceSettingsPopover';
 export { MiniPlayer } from './MiniPlayer';
 export { InCallChatSection } from './InCallChatSection';
 export { VoiceConnectionPanel } from './VoiceConnectionPanel';
+export { CallAudioManager } from './CallAudioManager';
