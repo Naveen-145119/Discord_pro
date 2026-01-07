@@ -34,6 +34,13 @@ export default async ({ req, res, log, error }) => {
             }, 400);
         }
 
+        // Security: Verify senderId matches authenticated user
+        const authenticatedUserId = req.headers['x-appwrite-user-id'];
+        if (authenticatedUserId && authenticatedUserId !== senderId) {
+            error(`Authorization mismatch: header=${authenticatedUserId}, body=${senderId}`);
+            return res.json({ success: false, error: 'Unauthorized: User ID mismatch' }, 403);
+        }
+
         const receiverDocs = await databases.listDocuments(DATABASE_ID, COLLECTION_USERS, [
             Query.equal('username', receiverUsername),
             Query.limit(1)

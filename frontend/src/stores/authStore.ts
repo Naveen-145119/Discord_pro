@@ -147,7 +147,9 @@ export const useAuthStore = create<AuthState>()(
                     }
 
                     await account.deleteSession('current');
-                } catch {
+                } catch (err) {
+                    // Log logout errors but don't block the logout flow
+                    console.warn('[Auth] Logout cleanup failed:', err instanceof Error ? err.message : err);
                 } finally {
                     set({
                         user: null,

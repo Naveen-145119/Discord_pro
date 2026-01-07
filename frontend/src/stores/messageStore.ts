@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { databases, DATABASE_ID, COLLECTIONS, client } from '@/lib/appwrite';
 import type { Message, Channel } from '@/types';
 import { ID, Query } from 'appwrite';
+import DOMPurify from 'dompurify';
 
 const MESSAGES_PER_PAGE = 50;
 
@@ -99,6 +100,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
         set({ isSending: true, error: null });
 
+        // Sanitize content to prevent XSS attacks
+        const sanitizedContent = DOMPurify.sanitize(content.trim(), {
+            ALLOWED_TAGS: [], // Strip all HTML tags for plain text messages
+            ALLOWED_ATTR: []
+        });
+
         try {
             const message = await databases.createDocument(
                 DATABASE_ID,
@@ -107,7 +114,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 {
                     channelId,
                     authorId,
-                    content: content.trim(),
+                    content: sanitizedContent,
                     type: replyToId ? 'reply' : 'default',
                     replyToId: replyToId ?? null,
                     attachments: JSON.stringify([]),
@@ -139,12 +146,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         }
 
         try {
+            // Sanitize content to prevent XSS attacks
+            const sanitizedContent = DOMPurify.sanitize(content.trim(), {
+                ALLOWED_TAGS: [], // Strip all HTML tags for plain text messages
+                ALLOWED_ATTR: []
+            });
+
             await databases.updateDocument(
                 DATABASE_ID,
                 COLLECTIONS.MESSAGES,
                 messageId,
                 {
-                    content: content.trim(),
+                    content: sanitizedContent,
                     isEdited: true,
                     editedAt: new Date().toISOString(),
                 }
@@ -241,9 +254,10 @@ export function subscribeToMessages(channelId: string) {
     const channel = `databases.${DATABASE_ID}.collections.${COLLECTIONS.MESSAGES}.documents`;
 
     return client.subscribe(channel, (response: { events: string[]; payload: unknown }) => {
-        const payload = response.payload as Message;
+        const payload = response.payload as Message | undefined;
 
-        if (payload.channelId !== channelId) return;
+        // Safety: Ensure payload exists and belongs to current channel
+        if (!payload?.$id || !payload?.channelId || payload.channelId !== channelId) return;
 
         const eventType = response.events[0];
 

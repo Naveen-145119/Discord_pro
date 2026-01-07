@@ -144,14 +144,16 @@ export function useCall(): UseCallReturn {
     const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
-        console.log('[useCall] startCall invoked', { friendId, channelId, callType, userId: user.$id });
+        if (import.meta.env.DEV) {
+            console.log('[useCall] startCall invoked', { friendId, channelId, callType, userId: user.$id });
+        }
 
         // Reset call tracking
         callLogCreatedRef.current = false;
         callStartTimeRef.current = null;
 
         try {
-            console.log('[useCall] Calling create-call function...');
+            if (import.meta.env.DEV) console.log('[useCall] Calling create-call function...');
             const execution = await functions.createExecution(
                 'create-call',
                 JSON.stringify({
@@ -161,7 +163,7 @@ export function useCall(): UseCallReturn {
                 })
             );
 
-            console.log('[useCall] Function execution result:', execution.status, execution.responseBody);
+            if (import.meta.env.DEV) console.log('[useCall] Function execution result:', execution.status, execution.responseBody);
 
             if (execution.status === 'failed') {
                 throw new Error('Function execution failed: ' + (execution.responseBody || execution.errors || 'Unknown error'));
@@ -183,7 +185,7 @@ export function useCall(): UseCallReturn {
             }
 
             const call = response.data;
-            console.log('[useCall] Call created successfully:', call);
+            if (import.meta.env.DEV) console.log('[useCall] Call created successfully:', call);
 
             // IMPORTANT: Set current call IMMEDIATELY so UI shows calling state
             const activeCall: ActiveCall = {
@@ -195,7 +197,7 @@ export function useCall(): UseCallReturn {
                 status: call.status || 'ringing',
             };
 
-            console.log('[useCall] Setting currentCall to:', activeCall);
+            if (import.meta.env.DEV) console.log('[useCall] Setting currentCall to:', activeCall);
             setCurrentCall(activeCall);
 
             // Set timeout for missed call (30 seconds)
@@ -225,9 +227,9 @@ export function useCall(): UseCallReturn {
             }, 30000);
 
             const callTargetUserId = friendId;
-            console.log('[useCall] Joining WebRTC channel...');
+            if (import.meta.env.DEV) console.log('[useCall] Joining WebRTC channel...');
             await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId, isInitiator: true });
-            console.log('[useCall] WebRTC joined successfully');
+            if (import.meta.env.DEV) console.log('[useCall] WebRTC joined successfully');
         } catch (err) {
             console.error('[useCall] Failed to start call:', err);
             throw err;

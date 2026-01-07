@@ -132,18 +132,26 @@ export function createPeerConnection(): RTCPeerConnection {
 export function getAudioConstraints(settings?: {
     echoCancellation?: boolean;
     noiseSuppression?: boolean;
+    noiseSuppressionLevel?: 'krisp' | 'standard' | 'none';
     autoGainControl?: boolean;
     deviceId?: string;
 }): MediaTrackConstraints {
+    // Determine effective noise suppression based on level
+    // 'krisp' and 'standard' both use browser's native noiseSuppression=true
+    // 'none' disables it entirely
+    const useNoiseSuppression = settings?.noiseSuppressionLevel
+        ? settings.noiseSuppressionLevel !== 'none'
+        : (settings?.noiseSuppression ?? true);
+
     const constraints: MediaTrackConstraints = {
         echoCancellation: settings?.echoCancellation ?? true,
-        noiseSuppression: settings?.noiseSuppression ?? true,
+        noiseSuppression: useNoiseSuppression,
         autoGainControl: settings?.autoGainControl ?? true,
         // Advanced Chrome-specific constraints for "crisp" audio
         // @ts-ignore - Vendor specific constraints
         googEchoCancellation: settings?.echoCancellation ?? true,
         googAutoGainControl: settings?.autoGainControl ?? true,
-        googNoiseSuppression: settings?.noiseSuppression ?? true,
+        googNoiseSuppression: useNoiseSuppression,
         googHighpassFilter: true,
         googTypingNoiseDetection: true, // Detects and swallows keyboard clicks
     };

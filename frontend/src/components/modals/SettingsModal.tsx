@@ -8,7 +8,6 @@ import {
     Bell,
     Volume2,
     Video,
-    Sliders,
     LogOut,
     ChevronRight
 } from 'lucide-react';
@@ -515,18 +514,23 @@ function AppearancePanel() {
 }
 
 /**
- * Voice & Video Panel
+ * Voice & Video Panel - Enhanced with Discord-style controls
  */
 function VoiceVideoPanel() {
     const {
         inputDeviceId, setInputDeviceId,
         outputDeviceId, setOutputDeviceId,
         videoDeviceId, setVideoDeviceId,
+        inputProfile, setInputProfile,
         echoCancellation, setEchoCancellation,
-        noiseSuppression, setNoiseSuppression,
+        noiseSuppressionLevel, setNoiseSuppressionLevel,
         autoGainControl, setAutoGainControl,
         inputVolume, setInputVolume,
-        outputVolume, setOutputVolume
+        outputVolume, setOutputVolume,
+        inputMode, setInputMode,
+        pushToTalkKey, setPushToTalkKey,
+        vadSensitivity, setVadSensitivity,
+        autoSensitivity, setAutoSensitivity,
     } = useMediaStore();
 
     const [devices, setDevices] = useState<{
@@ -535,11 +539,18 @@ function VoiceVideoPanel() {
         videoinput: MediaDeviceInfo[];
     }>({ audioinput: [], audiooutput: [], videoinput: [] });
 
+    // Mic level monitoring for visualization
+    const [audioLevel, setAudioLevel] = useState(0);
+    const [micError, setMicError] = useState<string | null>(null);
+    const [isCapturingKey, setIsCapturingKey] = useState(false);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const animationFrameRef = useRef<number | null>(null);
+
     useEffect(() => {
         const getDevices = async () => {
             try {
-                // Request permission first to get device labels
-                // Note: user might have already granted it
                 const devs = await navigator.mediaDevices.enumerateDevices();
                 setDevices({
                     audioinput: devs.filter(d => d.kind === 'audioinput'),
@@ -556,12 +567,217 @@ function VoiceVideoPanel() {
         return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
     }, []);
 
+    // Start mic monitoring when panel opens
+    useEffect(() => {
+        const startMonitoring = async () => {
+            try {
+                setMicError(null);
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: inputDeviceId !== 'default' ? { deviceId: { exact: inputDeviceId } } : true,
+                    video: false,
+                });
+                streamRef.current = stream;
+
+                audioContextRef.current = new AudioContext();
+                analyserRef.current = audioContextRef.current.createAnalyser();
+                const source = audioContextRef.current.createMediaStreamSource(stream);
+                analyserRef.current.fftSize = 256;
+                analyserRef.current.smoothingTimeConstant = 0.5;
+                source.connect(analyserRef.current);
+
+                const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+                let smoothedLevel = 0;
+
+                const checkLevel = () => {
+                    if (!analyserRef.current) return;
+                    analyserRef.current.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        sum += dataArray[i] * dataArray[i];
+                    }
+                    const rms = Math.sqrt(sum / dataArray.length);
+                    const level = Math.min(100, (rms / 128) * 100);
+                    smoothedLevel = smoothedLevel * 0.7 + level * 0.3;
+                    setAudioLevel(Math.round(smoothedLevel));
+                    animationFrameRef.current = requestAnimationFrame(checkLevel);
+                };
+
+                if (audioContextRef.current.state === 'suspended') {
+                    await audioContextRef.current.resume();
+                }
+                checkLevel();
+            } catch (err) {
+                console.error("Failed to start mic monitoring", err);
+                setMicError("Failed to access microphone. Please check your permissions.");
+            }
+        };
+
+        startMonitoring();
+
+        return () => {
+            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+            if (audioContextRef.current) audioContextRef.current.close();
+            if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+        };
+    }, [inputDeviceId]);
+
+    // Capture key for PTT
+    useEffect(() => {
+        if (!isCapturingKey) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            e.preventDefault();
+            setPushToTalkKey(e.code);
+            setIsCapturingKey(false);
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isCapturingKey, setPushToTalkKey]);
+
+    // Calculate threshold line position for sensitivity slider
+    const thresholdPosition = autoSensitivity ? 50 : Math.max(0, 100 + vadSensitivity);
+
     return (
         <div>
             <h2 className="text-xl font-bold text-text-heading mb-5">Voice & Video</h2>
 
             <div className="space-y-6">
-                {/* Voice Settings */}
+                {/* Input Profile */}
+                <div className="bg-[#232428] rounded-lg p-4">
+                    <h3 className="font-semibold text-text-heading mb-4 text-xs uppercase tracking-wide">Input Profile</h3>
+                    <div className="space-y-3">
+                        <label className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${inputProfile === 'voice-isolation' ? 'bg-discord-primary/20 ring-1 ring-discord-primary' : 'hover:bg-[#2a2b2f]'}`}>
+                            <input
+                                type="radio"
+                                name="inputProfile"
+                                checked={inputProfile === 'voice-isolation'}
+                                onChange={() => setInputProfile('voice-isolation')}
+                                className="mt-1 accent-discord-primary"
+                            />
+                            <div>
+                                <p className="font-medium text-text-normal">Voice Isolation</p>
+                                <p className="text-xs text-text-muted">Just your voice: filters out background noise</p>
+                            </div>
+                        </label>
+                        <label className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${inputProfile === 'studio' ? 'bg-discord-primary/20 ring-1 ring-discord-primary' : 'hover:bg-[#2a2b2f]'}`}>
+                            <input
+                                type="radio"
+                                name="inputProfile"
+                                checked={inputProfile === 'studio'}
+                                onChange={() => setInputProfile('studio')}
+                                className="mt-1 accent-discord-primary"
+                            />
+                            <div>
+                                <p className="font-medium text-text-normal">Studio</p>
+                                <p className="text-xs text-text-muted">Pure audio: open mic with no processing</p>
+                            </div>
+                        </label>
+                        <label className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${inputProfile === 'custom' ? 'bg-discord-primary/20 ring-1 ring-discord-primary' : 'hover:bg-[#2a2b2f]'}`}>
+                            <input
+                                type="radio"
+                                name="inputProfile"
+                                checked={inputProfile === 'custom'}
+                                onChange={() => setInputProfile('custom')}
+                                className="mt-1 accent-discord-primary"
+                            />
+                            <div>
+                                <p className="font-medium text-text-normal">Custom</p>
+                                <p className="text-xs text-text-muted">Advanced mode: control all settings manually</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                {/* Input Mode */}
+                <div className="bg-[#232428] rounded-lg p-4">
+                    <h3 className="font-semibold text-text-heading mb-4 text-xs uppercase tracking-wide">Input Mode</h3>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setInputMode('voice-activity')}
+                            className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-colors ${inputMode === 'voice-activity' ? 'bg-discord-primary text-white' : 'bg-[#1e1f22] text-text-muted hover:text-white'}`}
+                        >
+                            Voice Activity
+                        </button>
+                        <button
+                            onClick={() => setInputMode('push-to-talk')}
+                            className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-colors ${inputMode === 'push-to-talk' ? 'bg-discord-primary text-white' : 'bg-[#1e1f22] text-text-muted hover:text-white'}`}
+                        >
+                            Push to Talk
+                        </button>
+                    </div>
+
+                    {/* PTT Key Binding */}
+                    {inputMode === 'push-to-talk' && (
+                        <div className="mt-4">
+                            <p className="text-xs text-text-muted mb-2 uppercase font-semibold">Shortcut</p>
+                            <button
+                                onClick={() => setIsCapturingKey(true)}
+                                className={`w-full py-3 px-4 rounded bg-[#1e1f22] text-left font-mono transition-colors ${isCapturingKey ? 'ring-2 ring-discord-primary text-discord-primary' : 'text-text-normal hover:bg-[#2a2b2f]'}`}
+                            >
+                                {isCapturingKey ? 'Press any key...' : pushToTalkKey}
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Input Sensitivity (only for Voice Activity mode) */}
+                {inputMode === 'voice-activity' && (
+                    <div className="bg-[#232428] rounded-lg p-4">
+                        <h3 className="font-semibold text-text-heading mb-4 text-xs uppercase tracking-wide">Input Sensitivity</h3>
+
+                        {/* Auto Sensitivity Toggle */}
+                        <div className="flex items-center justify-between mb-4">
+                            <span className="text-sm text-text-normal">Automatically determine input sensitivity</span>
+                            <button
+                                onClick={() => setAutoSensitivity(!autoSensitivity)}
+                                className={`w-10 h-6 rounded-full relative transition-colors ${autoSensitivity ? 'bg-discord-green' : 'bg-gray-500'}`}
+                            >
+                                <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${autoSensitivity ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </button>
+                        </div>
+
+                        {/* Sensitivity Slider */}
+                        {!autoSensitivity && (
+                            <div className="mb-4">
+                                <input
+                                    type="range"
+                                    min="-100"
+                                    max="0"
+                                    value={vadSensitivity}
+                                    onChange={(e) => setVadSensitivity(parseInt(e.target.value))}
+                                    className="w-full accent-discord-primary"
+                                />
+                            </div>
+                        )}
+
+                        {/* Live Audio Level Bar */}
+                        <div className="relative h-2 bg-[#1e1f22] rounded overflow-hidden">
+                            {/* Audio level (green when speaking, gray when not) */}
+                            <div
+                                className={`absolute top-0 left-0 h-full transition-all duration-75 ${audioLevel > thresholdPosition ? 'bg-discord-green' : 'bg-gray-500'}`}
+                                style={{ width: `${audioLevel}%` }}
+                            />
+                            {/* Threshold line */}
+                            {!autoSensitivity && (
+                                <div
+                                    className="absolute top-0 w-0.5 h-full bg-yellow-500"
+                                    style={{ left: `${thresholdPosition}%` }}
+                                />
+                            )}
+                        </div>
+                        <p className="text-xs text-text-muted mt-2">
+                            {autoSensitivity ? 'Mic sensitivity is being automatically adjusted' : 'Speak to see your audio level. The yellow line shows your threshold.'}
+                        </p>
+                        {micError && (
+                            <p className="text-xs text-red-400 mt-1 font-medium bg-red-400/10 p-2 rounded">
+                                {micError}
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {/* Device Selection */}
                 <div className="grid grid-cols-2 gap-4">
                     {/* Input Device */}
                     <div className="bg-[#232428] rounded-lg p-4">
@@ -643,56 +859,68 @@ function VoiceVideoPanel() {
                     </select>
                 </div>
 
-                {/* Advanced Processing */}
-                <div className="bg-[#232428] rounded-lg p-4">
-                    <h3 className="font-semibold text-text-heading mb-4 flex items-center gap-2">
-                        <Sliders size={16} /> Advanced Voice Processing
-                    </h3>
+                {/* Voice Processing (only for Custom profile) */}
+                {inputProfile === 'custom' && (
+                    <div className="bg-[#232428] rounded-lg p-4">
+                        <h3 className="font-semibold text-text-heading mb-4 text-xs uppercase tracking-wide">Voice Processing</h3>
 
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h4 className="font-medium text-text-normal">Echo Cancellation</h4>
-                                <p className="text-xs text-text-muted">Prevents echo when using speakers</p>
+                        <div className="space-y-4">
+                            {/* Echo Cancellation */}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h4 className="font-medium text-text-normal">Echo Cancellation</h4>
+                                    <p className="text-xs text-text-muted">Prevents echo when using speakers</p>
+                                </div>
+                                <button
+                                    onClick={() => setEchoCancellation(!echoCancellation)}
+                                    className={`w-10 h-6 rounded-full relative transition-colors ${echoCancellation ? 'bg-discord-green' : 'bg-gray-500'}`}
+                                >
+                                    <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${echoCancellation ? 'translate-x-4' : 'translate-x-0'}`} />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setEchoCancellation(!echoCancellation)}
-                                className={`w - 10 h - 6 rounded - full relative transition - colors ${echoCancellation ? 'bg-discord-green' : 'bg-gray-500'} `}
-                            >
-                                <div className={`absolute top - 1 left - 1 w - 4 h - 4 rounded - full bg - white transition - transform ${echoCancellation ? 'translate-x-4' : 'translate-x-0'} `} />
-                            </button>
-                        </div>
 
-                        <div className="flex items-center justify-between">
+                            {/* Noise Suppression */}
                             <div>
-                                <h4 className="font-medium text-text-normal flex items-center gap-2">
-                                    Noise Suppression
-                                    <span className="bg-discord-brand text-white text-[10px] px-1 rounded uppercase font-bold">Krisp</span>
-                                </h4>
-                                <p className="text-xs text-text-muted">Suppresses background noise (fans, typing)</p>
+                                <h4 className="font-medium text-text-normal mb-1">Noise Suppression</h4>
+                                <p className="text-xs text-text-muted mb-3">Suppress background noise from your mic</p>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setNoiseSuppressionLevel('krisp')}
+                                        className={`flex-1 py-2 px-3 rounded font-medium text-sm transition-colors ${noiseSuppressionLevel === 'krisp' ? 'bg-discord-primary text-white' : 'bg-[#1e1f22] text-text-muted hover:text-white'}`}
+                                    >
+                                        Krisp
+                                    </button>
+                                    <button
+                                        onClick={() => setNoiseSuppressionLevel('standard')}
+                                        className={`flex-1 py-2 px-3 rounded font-medium text-sm transition-colors ${noiseSuppressionLevel === 'standard' ? 'bg-discord-primary text-white' : 'bg-[#1e1f22] text-text-muted hover:text-white'}`}
+                                    >
+                                        Standard
+                                    </button>
+                                    <button
+                                        onClick={() => setNoiseSuppressionLevel('none')}
+                                        className={`flex-1 py-2 px-3 rounded font-medium text-sm transition-colors ${noiseSuppressionLevel === 'none' ? 'bg-discord-primary text-white' : 'bg-[#1e1f22] text-text-muted hover:text-white'}`}
+                                    >
+                                        None
+                                    </button>
+                                </div>
                             </div>
-                            <button
-                                onClick={() => setNoiseSuppression(!noiseSuppression)}
-                                className={`w - 10 h - 6 rounded - full relative transition - colors ${noiseSuppression ? 'bg-discord-green' : 'bg-gray-500'} `}
-                            >
-                                <div className={`absolute top - 1 left - 1 w - 4 h - 4 rounded - full bg - white transition - transform ${noiseSuppression ? 'translate-x-4' : 'translate-x-0'} `} />
-                            </button>
-                        </div>
 
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h4 className="font-medium text-text-normal">Automatic Gain Control</h4>
-                                <p className="text-xs text-text-muted">Automatically adjusts your microphone volume</p>
+                            {/* Auto Gain Control */}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h4 className="font-medium text-text-normal">Automatic Gain Control</h4>
+                                    <p className="text-xs text-text-muted">Automatically adjusts your microphone volume</p>
+                                </div>
+                                <button
+                                    onClick={() => setAutoGainControl(!autoGainControl)}
+                                    className={`w-10 h-6 rounded-full relative transition-colors ${autoGainControl ? 'bg-discord-green' : 'bg-gray-500'}`}
+                                >
+                                    <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${autoGainControl ? 'translate-x-4' : 'translate-x-0'}`} />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setAutoGainControl(!autoGainControl)}
-                                className={`w - 10 h - 6 rounded - full relative transition - colors ${autoGainControl ? 'bg-discord-green' : 'bg-gray-500'} `}
-                            >
-                                <div className={`absolute top - 1 left - 1 w - 4 h - 4 rounded - full bg - white transition - transform ${autoGainControl ? 'translate-x-4' : 'translate-x-0'} `} />
-                            </button>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );

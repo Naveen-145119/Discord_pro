@@ -75,6 +75,10 @@ export function useWebRTC({
     const inputDeviceId = useMediaStore(state => state.inputDeviceId);
     const videoDeviceId = useMediaStore(state => state.videoDeviceId);
 
+    // Subscribe to store for Push-to-Talk
+    const inputMode = useMediaStore(state => state.inputMode);
+    const pushToTalkKey = useMediaStore(state => state.pushToTalkKey);
+
     const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
     const unsubscribeRef = useRef<(() => void) | null>(null);
     const voiceDetectorCleanupRef = useRef<(() => void) | null>(null);
@@ -828,19 +832,16 @@ export function useWebRTC({
         setActiveChannelId(effectiveChannelId);
 
         try {
-            // Get constraints from store
-            const {
-                inputDeviceId,
-                echoCancellation,
-                noiseSuppression,
-                autoGainControl
-            } = useMediaStore.getState();
+            // Get constraints from store (using effective settings based on profile)
+            const state = useMediaStore.getState();
+            const effectiveSettings = state.getEffectiveAudioSettings();
 
             const audioConstraints = getAudioConstraints({
-                deviceId: inputDeviceId,
-                echoCancellation,
-                noiseSuppression,
-                autoGainControl
+                deviceId: state.inputDeviceId,
+                echoCancellation: effectiveSettings.echoCancellation,
+                noiseSuppression: effectiveSettings.noiseSuppression,
+                noiseSuppressionLevel: state.noiseSuppressionLevel,
+                autoGainControl: effectiveSettings.autoGainControl,
             });
 
             // Initial join is audio-only
@@ -1436,7 +1437,7 @@ export function useWebRTC({
             // Handle screen share stop event
             if (screenVideoTrack) {
                 screenVideoTrack.onended = () => {
-                    console.log('[WebRTC] Screen share ended by user');
+                    if (import.meta.env.DEV) console.log('[WebRTC] Screen share ended by user');
                     stopScreenShare();
                 };
             }
@@ -1445,14 +1446,16 @@ export function useWebRTC({
             const audioCheckInterval = setInterval(() => {
                 const localAudio = localStreamRef.current?.getAudioTracks()[0];
                 if (localAudio) {
-                    console.log('[WebRTC] Screen share audio check - local track:',
-                        'enabled:', localAudio.enabled,
-                        'muted:', localAudio.muted,
-                        'readyState:', localAudio.readyState);
+                    if (import.meta.env.DEV) {
+                        console.log('[WebRTC] Screen share audio check - local track:',
+                            'enabled:', localAudio.enabled,
+                            'muted:', localAudio.muted,
+                            'readyState:', localAudio.readyState);
+                    }
 
                     // Ensure audio remains enabled if not muted
                     if (!localAudio.enabled && !isMuted) {
-                        console.log('[WebRTC] ⚠️ Audio track disabled during screen share, re-enabling...');
+                        if (import.meta.env.DEV) console.log('[WebRTC] ⚠️ Audio track disabled during screen share, re-enabling...');
                         localAudio.enabled = true;
                     }
                 } else {
@@ -1469,6 +1472,64 @@ export function useWebRTC({
             setError(message);
         }
     }, [isScreenSharing, isMuted, stopScreenShare, sendSignal]);
+
+    // Push-to-Talk: Mute by default, enable only when key is held
+    useEffect(() => {
+        if (inputMode !== 'push-to-talk' || !localStream) return;
+
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (!audioTrack) return;
+
+        // In PTT mode, start with audio disabled (muted)
+        audioTrack.enabled = false;
+        setIsMuted(true);
+
+        // Also sync with peer connection senders
+        const syncPeerSenders = (enabled: boolean) => {
+            for (const [, pc] of peerConnectionsRef.current.entries()) {
+                const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+                audioSenders.forEach(sender => {
+                    if (sender.track) {
+                        sender.track.enabled = enabled;
+                    }
+                });
+            }
+        };
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Match against key code (e.g., 'Space', 'KeyV', etc.)
+            if (e.code === pushToTalkKey && !e.repeat) {
+                audioTrack.enabled = true;
+                setIsMuted(false);
+                syncPeerSenders(true);
+                console.log('[WebRTC] PTT: Key down - unmuted');
+            }
+        };
+
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.code === pushToTalkKey) {
+                audioTrack.enabled = false;
+                setIsMuted(true);
+                syncPeerSenders(false);
+                console.log('[WebRTC] PTT: Key up - muted');
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+
+        console.log('[WebRTC] Push-to-Talk enabled with key:', pushToTalkKey);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            // Restore normal mic state when switching away from PTT
+            if (audioTrack.readyState === 'live') {
+                audioTrack.enabled = true;
+                setIsMuted(false);
+            }
+        };
+    }, [inputMode, pushToTalkKey, localStream]);
 
     useEffect(() => {
         return () => {

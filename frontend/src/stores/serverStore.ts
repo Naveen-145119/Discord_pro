@@ -237,46 +237,21 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
     joinServer: async (serverId, userId) => {
         try {
-            const existing = await databases.listDocuments(
-                DATABASE_ID,
-                COLLECTIONS.SERVER_MEMBERS,
-                [
-                    Query.equal('serverId', serverId),
-                    Query.equal('userId', userId),
-                    Query.limit(1)
-                ]
+            // Use backend function to handle join atomically (prevents race conditions)
+            const execution = await functions.createExecution(
+                'join-server',
+                JSON.stringify({ serverId, userId }),
+                false
             );
 
-            if (existing.documents.length > 0) {
-                throw new Error('Already a member of this server');
+            if (!execution.responseBody) {
+                throw new Error('Empty response from server');
             }
 
-            await databases.createDocument(
-                DATABASE_ID,
-                COLLECTIONS.SERVER_MEMBERS,
-                ID.unique(),
-                {
-                    serverId,
-                    userId,
-                    nickname: null,
-                    roleIds: JSON.stringify([]),
-                    joinedAt: new Date().toISOString(),
-                    permissionBits: DEFAULT_PERMISSIONS.toString(),
-                }
-            );
-
-            const server = await databases.getDocument(
-                DATABASE_ID,
-                COLLECTIONS.SERVERS,
-                serverId
-            ) as unknown as Server;
-
-            await databases.updateDocument(
-                DATABASE_ID,
-                COLLECTIONS.SERVERS,
-                serverId,
-                { memberCount: server.memberCount + 1 }
-            );
+            const response = JSON.parse(execution.responseBody);
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to join server');
+            }
 
             await get().fetchServers(userId);
         } catch (error) {
