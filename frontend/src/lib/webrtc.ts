@@ -87,7 +87,7 @@ export const BITRATE_CONFIG = {
     screenShare: 6_000_000,
 } as const;
 
-export type SignalType = 'offer' | 'answer' | 'ice-candidate';
+export type SignalType = 'offer' | 'answer' | 'ice-candidate' | 'state-update';
 
 export interface WebRTCSignal {
     $id?: string;
@@ -98,6 +98,18 @@ export interface WebRTCSignal {
     sdp?: string;
     candidate?: string;
     expiresAt: string;
+    userInfo?: {
+        displayName: string;
+        avatarUrl?: string;
+        isMuted?: boolean;
+        isDeafened?: boolean;
+    };
+    userState?: {
+        isMuted: boolean;
+        isDeafened: boolean;
+        isVideoOn: boolean;
+        isScreenSharing: boolean;
+    };
 }
 
 export type ConnectionState =

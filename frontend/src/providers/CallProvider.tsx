@@ -4,6 +4,7 @@ import { useCall, type CallType, type ActiveCall } from '@/hooks/useCall';
 import { IncomingCallModal } from '@/components/modals/IncomingCallModal';
 import { ActiveCallModal } from '@/components/modals/ActiveCallModal';
 import { CallAudioManager } from '@/components/call';
+import { MiniPlayer } from '@/components/call/MiniPlayer';
 import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
@@ -164,7 +165,18 @@ export function CallProvider({ children }: CallProviderProps) {
                 {/* Show when we have currentCall OR when we're starting a call */}
                 {((call.currentCall && currentFriend) || (isStartingCall && callFriend)) && (
                     isMinimized ? (
-                        null // Hidden when minimized (User relies on Sidebar Panel)
+                        <MiniPlayer
+                            friend={currentFriend || callFriend!}
+                            remoteStream={call.remoteStream}
+                            localStream={call.localStream}
+                            isMuted={call.isMuted}
+                            isVideoOn={call.isVideoOn}
+                            callDuration={callDuration}
+                            onExpand={() => setIsMinimized(false)}
+                            onEndCall={call.endCall}
+                            onToggleMute={call.toggleMute}
+                            onToggleVideo={call.toggleVideo}
+                        />
                     ) : (
                         <ActiveCallModal
                             key="active-call"

@@ -254,7 +254,7 @@ export function useWebRTC({
     const sendSignal = useCallback(async (
         toUserId: string,
         type: WebRTCSignal['type'],
-        data: { sdp?: string; candidate?: string }
+        data: { sdp?: string; candidate?: string; userState?: WebRTCSignal['userState'] }
     ) => {
         const currentChannelId = channelIdRef.current;
         if (!currentChannelId) {
@@ -271,12 +271,39 @@ export function useWebRTC({
                 data: {
                     targetUserId: toUserId,
                     sdp: data.sdp,
-                    candidate: data.candidate ? JSON.parse(data.candidate) : undefined
+                    candidate: data.candidate ? JSON.parse(data.candidate) : undefined,
+                    userInfo: {
+                        displayName: _displayName,
+                        avatarUrl: _avatarUrl,
+                        isMuted: isMuted, // Include current state
+                        isDeafened: isDeafened
+                    },
+                    userState: data.userState
                 }
             }),
             false
         );
-    }, [userId]);
+    }, [userId, isMuted, isDeafened]); // Added dependencies for current state
+
+    const broadcastState = useCallback(async (
+        newState: {
+            isMuted: boolean;
+            isDeafened: boolean;
+            isVideoOn: boolean;
+            isScreenSharing: boolean;
+        }
+    ) => {
+        // Broadcast to all connected peers
+        const peers = Array.from(peerConnectionsRef.current.keys());
+
+        console.log('[WebRTC] Broadcasting state update to', peers.length, 'peers:', newState);
+
+        for (const peerId of peers) {
+            await sendSignal(peerId, 'state-update', {
+                userState: newState
+            });
+        }
+    }, [sendSignal]);
 
     const setupPeerConnection = useCallback((
         pc: RTCPeerConnection,
@@ -413,29 +440,34 @@ export function useWebRTC({
                 const updated = new Map(prev);
                 const existing = updated.get(peerId);
 
-                // DETECT SCREEN SHARE - must be inside setParticipants to access current state (prev)
-                // Strategy: In DM calls, initial connection is audio-only.
-                // If participant already exists (we have audio) and we receive new VIDEO = screen share
-                const hasExistingParticipant = prev.has(peerId);
-                const isScreenShareFromRenegotiation = track.kind === 'video' && isRenegotiation && hasExistingParticipant;
+                // DETECT SCREEN SHARE - Improved Logic
+                // Strategy: Determine if this is a screen share track based on metadata and existing state.
+                // Note: Standard camera video is added to the 'stream'. Screen share is added to 'screenStream'.
+
+                const hasExistingVideo = existing?.isVideoOn;
+
+                // If the existing stream ALREADY has a video track, this second video track is likely a screen share
+                // (unless it's a track replacement, but that usually happens in-place or via negotiation that clears old one)
+                const isAdditionalVideoTrack = hasExistingVideo &&
+                    track.id !== existing?.stream?.getVideoTracks()[0]?.id;
 
                 const isScreenShare = track.kind === 'video' && (
-                    // Local detection (works when sharing) - displaySurface available locally
+                    // 1. Explicit display surface (reliable if available)
                     trackSettings.displaySurface === 'monitor' ||
                     trackSettings.displaySurface === 'window' ||
                     trackSettings.displaySurface === 'browser' ||
-                    // Remote detection: renegotiation + existing participant + video = screen share
-                    isScreenShareFromRenegotiation ||
-                    // Fallback: large dimensions or screen in label
-                    (trackSettings.width && trackSettings.width >= 1920) ||
-                    track.label.toLowerCase().includes('screen')
+                    // 2. Track label indications
+                    track.label.toLowerCase().includes('screen') ||
+                    // 3. Fallback Heuristic: If we already have a main video track, and we get another one => Screen Share
+                    isAdditionalVideoTrack
                 );
 
-                console.log('[WebRTC] Screen share detection (inside setParticipants):', {
-                    isRenegotiation,
-                    hasExistingParticipant,
+                console.log('[WebRTC] Screen share detection:', {
+                    peerId,
                     trackKind: track.kind,
-                    isScreenShareFromRenegotiation,
+                    trackId: track.id,
+                    existingVideoTracks: existing?.stream?.getVideoTracks().length || 0,
+                    isAdditionalVideoTrack,
                     result: isScreenShare
                 });
 
@@ -445,10 +477,15 @@ export function useWebRTC({
                     const screenMediaStream = new MediaStream();
                     screenMediaStream.addTrack(track);
 
+                    // Use cached user info (from signal) or existing info or "User" fallback
+                    const displayName = existing?.displayName || targetUserInfoRef.current?.displayName || 'User';
+                    const avatarUrl = existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl;
+
                     updated.set(peerId, {
-                        odId: peerId,
-                        displayName: existing?.displayName || targetUserInfoRef.current?.displayName || 'User',
-                        avatarUrl: existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl,
+                        ...existing,
+                        odId: peerId, // Ensure odId is set
+                        displayName,
+                        avatarUrl,
                         isMuted: existing?.isMuted ?? false,
                         isDeafened: existing?.isDeafened ?? false,
                         isVideoOn: existing?.isVideoOn ?? false,
@@ -459,10 +496,10 @@ export function useWebRTC({
                         screenStream: screenMediaStream, // Store screen share separately
                     });
 
-                    console.log('[WebRTC] ✅ Screen share stored for peer:', peerId);
                     return updated;
                 }
 
+                // Handling Standard Camera/Audio Tracks
                 // ALWAYS create a new MediaStream to ensure React detects changes
                 const newStream = new MediaStream();
 
@@ -494,7 +531,9 @@ export function useWebRTC({
                         });
                         console.log('[WebRTC] Added/updated audio track for peer:', peerId);
                     } else if (track.kind === 'video') {
-                        // For video: REPLACE all video tracks with the new one to prevent accumulation
+                        // For video: We decided this is NOT a screen share, so it's a camera track.
+                        // We replace the current camera track.
+
                         // Keep only audio tracks from existing stream
                         existing.stream.getAudioTracks().forEach(t => {
                             if (t.readyState === 'live') {
@@ -502,8 +541,7 @@ export function useWebRTC({
                             }
                         });
 
-                        // Remove old video tracks - only keep the NEW video track
-                        // This prevents video track accumulation (the bug showing 2 video tracks)
+                        // Add the NEW video track
                         if (track.readyState === 'live') {
                             newStream.addTrack(track);
                             console.log('[WebRTC] Replaced video track for peer:', peerId,
@@ -516,10 +554,14 @@ export function useWebRTC({
                 const liveVideoTracks = newStream.getVideoTracks().filter(t => t.readyState === 'live');
                 const liveAudioTracks = newStream.getAudioTracks().filter(t => t.readyState === 'live');
 
+                // Use cached user info (from signal) or existing info or "User" fallback
+                const displayName = existing?.displayName || targetUserInfoRef.current?.displayName || 'User';
+                const avatarUrl = existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl;
+
                 updated.set(peerId, {
                     odId: peerId,
-                    displayName: existing?.displayName || targetUserInfoRef.current?.displayName || 'User',
-                    avatarUrl: existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl,
+                    displayName,
+                    avatarUrl,
                     isMuted: existing?.isMuted ?? false,
                     isDeafened: existing?.isDeafened ?? false,
                     isVideoOn: liveVideoTracks.length > 0,
@@ -594,6 +636,41 @@ export function useWebRTC({
                     } else if (establishedConnectionsRef.current.has(peerId) && pc.connectionState === 'connected') {
                         // Already connected and not a renegotiation - this shouldn't happen
                         console.log('[WebRTC] Unexpected offer on established connection:', peerId);
+                    }
+
+                    // Update participant state with info from signal if available
+                    if (signal.userInfo) {
+                        setParticipants(prev => {
+                            const updated = new Map(prev);
+                            const existing = updated.get(peerId);
+
+                            // Initialize default participant structure if not exists
+                            // This ensures we show the name even before tracks arrive
+                            if (!existing) {
+                                // We don't have tracks yet, but we can set up the placeholder
+                                updated.set(peerId, {
+                                    odId: peerId,
+                                    displayName: signal.userInfo!.displayName || 'User',
+                                    avatarUrl: signal.userInfo!.avatarUrl,
+                                    isMuted: signal.userInfo!.isMuted ?? false,
+                                    isDeafened: signal.userInfo!.isDeafened ?? false,
+                                    isVideoOn: false,
+                                    isScreenSharing: false,
+                                    isSpeaking: false,
+                                    stream: new MediaStream(), // Empty stream for now
+                                });
+                            } else {
+                                updated.set(peerId, {
+                                    ...existing,
+                                    displayName: signal.userInfo!.displayName || existing.displayName,
+                                    avatarUrl: signal.userInfo!.avatarUrl || existing.avatarUrl,
+                                    // Update state if provided, otherwise keep existing
+                                    isMuted: signal.userInfo!.isMuted ?? existing.isMuted,
+                                    isDeafened: signal.userInfo!.isDeafened ?? existing.isDeafened,
+                                });
+                            }
+                            return updated;
+                        });
                     }
 
                     // Handle glare (both peers sent offers simultaneously)
@@ -726,6 +803,24 @@ export function useWebRTC({
                         type: 'answer',
                         sdp: signal.sdp,
                     });
+
+                    // Update participant state with info from signal if available
+                    if (signal.userInfo) {
+                        setParticipants(prev => {
+                            const updated = new Map(prev);
+                            const existing = updated.get(peerId);
+                            if (existing) {
+                                updated.set(peerId, {
+                                    ...existing,
+                                    displayName: signal.userInfo!.displayName || existing.displayName,
+                                    avatarUrl: signal.userInfo!.avatarUrl || existing.avatarUrl,
+                                    isMuted: signal.userInfo!.isMuted ?? existing.isMuted,
+                                    isDeafened: signal.userInfo!.isDeafened ?? existing.isDeafened,
+                                });
+                            }
+                            return updated;
+                        });
+                    }
 
                     // Mark this connection as established
                     establishedConnectionsRef.current.add(peerId);
@@ -1066,35 +1161,42 @@ export function useWebRTC({
 
             console.log('[WebRTC] toggleMute: muted =', newMutedState, 'audioTrack.enabled =', audioTrack.enabled);
 
-            // Also verify all peer connection audio senders are in sync
-            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
-                const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                audioSenders.forEach(sender => {
-                    if (sender.track) {
-                        sender.track.enabled = !newMutedState;
-                        console.log('[WebRTC] Synced audio sender for peer:', peerId, 'enabled:', sender.track.enabled);
-                    }
-                });
-            }
+            // Broadcast new state
+            broadcastState({
+                isMuted: newMutedState,
+                isDeafened: isDeafened,
+                isVideoOn: isVideoOn,
+                isScreenSharing: isScreenSharing
+            });
         }
-    }, [isMuted]);
+    }, [isMuted, isDeafened, isVideoOn, isScreenSharing, broadcastState]);
 
     const toggleDeafen = useCallback(() => {
-        const newDeafened = !isDeafened;
-        setIsDeafened(newDeafened);
+        const newDeafenedState = !isDeafened;
+        setIsDeafened(newDeafenedState);
 
-        participants.forEach((participant) => {
-            if (participant.stream) {
-                participant.stream.getAudioTracks().forEach((track) => {
-                    track.enabled = !newDeafened;
+        // Broadcast new state
+        broadcastState({
+            isMuted: isMuted,
+            isDeafened: newDeafenedState,
+            isVideoOn: isVideoOn,
+            isScreenSharing: isScreenSharing
+        });
+
+        // Also mute mic when deafened (Discord behavior)
+        if (newDeafenedState && !isMuted) {
+            toggleMute();
+        }
+
+        // Mute all remote audio tracks
+        participants.forEach(p => {
+            if (p.stream) {
+                p.stream.getAudioTracks().forEach(t => {
+                    t.enabled = !newDeafenedState;
                 });
             }
         });
-
-        if (newDeafened && !isMuted) {
-            toggleMute();
-        }
-    }, [isDeafened, isMuted, participants, toggleMute]);
+    }, [isDeafened, isMuted, isVideoOn, isScreenSharing, broadcastState, participants, toggleMute]);
 
     const toggleVideo = useCallback(async () => {
         const stream = localStreamRef.current;
