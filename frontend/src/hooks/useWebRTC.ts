@@ -1208,13 +1208,26 @@ export function useWebRTC({
                 stream.removeTrack(track);
             });
 
-            peerConnectionsRef.current.forEach((pc) => {
+            // Remove video senders from all peer connections AND renegotiate
+            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
                 pc.getSenders().forEach((sender) => {
                     if (sender.track?.kind === 'video') {
                         pc.removeTrack(sender);
+                        console.log('[WebRTC] Removed video track from peer:', peerId);
                     }
                 });
-            });
+
+                // CRITICAL: Renegotiate to inform peer about video track removal
+                // Without this, the remote peer's video element shows a frozen last frame
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    await sendSignal(peerId, 'offer', { sdp: offer.sdp });
+                    console.log('[WebRTC] Sent renegotiation offer for video off to:', peerId);
+                } catch (err) {
+                    console.error('[WebRTC] Failed to renegotiate for video off:', err);
+                }
+            }
 
             setIsVideoOn(false);
         } else {
