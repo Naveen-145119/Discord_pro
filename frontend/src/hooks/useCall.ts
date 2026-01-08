@@ -38,7 +38,7 @@ interface UseCallReturn {
     remoteStreamVersion: number;
     participants: Map<string, CallParticipant>;
     remoteParticipant: CallParticipant | null;
-    startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
+    startCall: (friendId: string, channelId: string, callType: CallType, receiverInfo?: { displayName: string; avatarUrl?: string }) => Promise<void>;
     answerCall: () => Promise<void>;
     declineCall: () => Promise<void>;
     endCall: () => Promise<void>;
@@ -141,11 +141,11 @@ export function useCall(): UseCallReturn {
         isInitiator,
     });
 
-    const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType) => {
+    const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType, receiverInfo?: { displayName: string; avatarUrl?: string }) => {
         if (!user?.$id) throw new Error('Not authenticated');
 
         if (import.meta.env.DEV) {
-            console.log('[useCall] startCall invoked', { friendId, channelId, callType, userId: user.$id });
+            console.log('[useCall] startCall invoked', { friendId, channelId, callType, userId: user.$id, receiverInfo });
         }
 
         // Reset call tracking
@@ -188,6 +188,7 @@ export function useCall(): UseCallReturn {
             if (import.meta.env.DEV) console.log('[useCall] Call created successfully:', call);
 
             // IMPORTANT: Set current call IMMEDIATELY so UI shows calling state
+            // Include receiver info so targetUserInfo can derive displayName/avatarUrl
             const activeCall: ActiveCall = {
                 $id: call.$id,
                 callerId: call.callerId,
@@ -195,6 +196,12 @@ export function useCall(): UseCallReturn {
                 channelId: call.channelId,
                 callType: call.callType,
                 status: call.status || 'ringing',
+                // Include receiver info for proper display of remote participant
+                receiver: receiverInfo ? {
+                    $id: friendId,
+                    displayName: receiverInfo.displayName,
+                    avatarUrl: receiverInfo.avatarUrl || null,
+                } as User : undefined,
             };
 
             if (import.meta.env.DEV) console.log('[useCall] Setting currentCall to:', activeCall);

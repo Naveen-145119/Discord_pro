@@ -64,7 +64,10 @@ export function CallProvider({ children }: CallProviderProps) {
         setIsStartingCall(true); // Show calling UI immediately!
 
         try {
-            await call.startCall(friendId, channelId, callType);
+            await call.startCall(friendId, channelId, callType, {
+                displayName: friend.displayName,
+                avatarUrl: friend.avatarUrl || undefined,
+            });
             console.log('[CallProvider] startCall completed');
         } catch (err) {
             console.error('[CallProvider] startCall failed:', err);
