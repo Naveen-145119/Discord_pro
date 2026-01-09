@@ -116,8 +116,17 @@ export function MessageItem({
         onEdit?.(msg);
     };
 
-    // Handle call log messages
-    if (message.type === 'call') {
+    // Handle call log messages - can be 'call' or 'system' type with call metadata
+    const isCallLogMessage = message.type === 'call' || (
+        message.type === 'system' && message.metadata && (() => {
+            try {
+                const meta = JSON.parse(message.metadata);
+                return meta.callType && meta.callStatus && meta.callerId;
+            } catch { return false; }
+        })()
+    );
+
+    if (isCallLogMessage) {
         return (
             <CallLogMessage
                 message={message}

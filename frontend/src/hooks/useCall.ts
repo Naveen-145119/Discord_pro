@@ -335,8 +335,11 @@ export function useCall(): UseCallReturn {
                     { status: 'ended' }
                 );
 
-                // Create call ended log (only if call was answered and we haven't created one yet)
-                if (!callLogCreatedRef.current && callToEnd.status === 'answered') {
+                // Create call ended log if:
+                // 1. We haven't created one yet
+                // 2. Call was actually connected (callStartTimeRef is set OR status was answered)
+                const wasConnected = callStartTimeRef.current !== null || callToEnd.status === 'answered';
+                if (!callLogCreatedRef.current && wasConnected) {
                     callLogCreatedRef.current = true;
                     await createCallLogMessage(
                         callToEnd.channelId,
