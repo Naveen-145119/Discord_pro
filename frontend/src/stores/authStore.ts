@@ -24,6 +24,7 @@ interface AuthState {
     checkSession: () => Promise<void>;
     updateUser: (updates: Partial<User>) => void;
     updateProfile: (updates: ProfileUpdate) => Promise<void>;
+    updateStatus: (status: 'online' | 'idle' | 'dnd' | 'offline') => Promise<void>;
     clearError: () => void;
 }
 
@@ -300,6 +301,23 @@ export const useAuthStore = create<AuthState>()(
             },
 
             clearError: () => set({ error: null }),
+
+            updateStatus: async (status) => {
+                const { user } = get();
+                if (!user) return;
+
+                try {
+                    await databases.updateDocument(
+                        DATABASE_ID,
+                        COLLECTIONS.USERS,
+                        user.$id,
+                        { status }
+                    );
+                    set({ user: { ...user, status } });
+                } catch (err) {
+                    console.warn('[Auth] Failed to update status:', err);
+                }
+            },
         }),
         {
             name: 'discord-auth',
