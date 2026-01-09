@@ -854,6 +854,28 @@ export function useWebRTC({
                     }
                     break;
                 }
+
+                case 'state-update': {
+                    // Handle remote participant state changes (mute, video, etc.)
+                    if (signal.userState) {
+                        console.log('[WebRTC] Received state-update from:', peerId, signal.userState);
+                        setParticipants(prev => {
+                            const updated = new Map(prev);
+                            const existing = updated.get(peerId);
+                            if (existing) {
+                                updated.set(peerId, {
+                                    ...existing,
+                                    isMuted: signal.userState!.isMuted,
+                                    isDeafened: signal.userState!.isDeafened,
+                                    isVideoOn: signal.userState!.isVideoOn,
+                                    isScreenSharing: signal.userState!.isScreenSharing,
+                                });
+                            }
+                            return updated;
+                        });
+                    }
+                    break;
+                }
             }
         } catch (err) {
             console.error('[WebRTC] Error handling signal:', signal.type, err);

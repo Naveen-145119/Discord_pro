@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useCall, type CallType, type ActiveCall } from '@/hooks/useCall';
 import { IncomingCallModal } from '@/components/modals/IncomingCallModal';
@@ -50,7 +50,7 @@ export function CallProvider({ children }: CallProviderProps) {
     const [isMinimized, setIsMinimized] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
     const [isStartingCall, setIsStartingCall] = useState(false); // Track if we're initiating a call
-    const callStartTimeRef = useState<number | null>(null);
+    const callStartTimeRef = useRef<number | null>(null);
 
     // Debug logging
     console.log('[CallProvider] Render - currentCall:', call.currentCall?.$id, 'isCalling:', call.isCalling, 'isStartingCall:', isStartingCall, 'callFriend:', callFriend?.displayName);
@@ -89,26 +89,26 @@ export function CallProvider({ children }: CallProviderProps) {
             setCallFriend(null);
             setIsMinimized(false);
             setCallDuration(0);
-            callStartTimeRef[1](null);
+            callStartTimeRef.current = null;
         }
-    }, [call.currentCall, isStartingCall, callStartTimeRef]);
+    }, [call.currentCall, isStartingCall]);
 
     // Call duration timer
     useEffect(() => {
         if (call.remoteStream && !call.isCalling) {
-            if (!callStartTimeRef[0]) {
-                callStartTimeRef[1](Date.now());
+            if (!callStartTimeRef.current) {
+                callStartTimeRef.current = Date.now();
             }
 
             const interval = setInterval(() => {
-                if (callStartTimeRef[0]) {
-                    setCallDuration(Math.floor((Date.now() - callStartTimeRef[0]) / 1000));
+                if (callStartTimeRef.current) {
+                    setCallDuration(Math.floor((Date.now() - callStartTimeRef.current) / 1000));
                 }
             }, 1000);
 
             return () => clearInterval(interval);
         }
-    }, [call.remoteStream, call.isCalling, callStartTimeRef]);
+    }, [call.remoteStream, call.isCalling]);
 
     const getCurrentFriend = (): User | null => {
         if (callFriend) return callFriend;
