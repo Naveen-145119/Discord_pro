@@ -97,6 +97,9 @@ export function useWebRTC({
     const connectionStateRef = useRef<ConnectionState>('disconnected');
     const pendingSignalsRef = useRef<WebRTCSignal[]>([]);
     const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+    // Tracks peers for whom we've broadcast isScreenSharing=true but the offer hasn't arrived yet.
+    // Used as a race-condition fallback in ontrack screen-share detection.
+    const pendingScreenSharePeersRef = useRef<Set<string>>(new Set());
 
     // Track processed signal IDs to prevent duplicate processing
     const processedSignalIdsRef = useRef<Set<string>>(new Set());
@@ -595,15 +598,23 @@ export function useWebRTC({
                     // 1. PRIMARY: Peer already told us they're screen sharing via state-update signal
                     //    (broadcastState is called BEFORE renegotiation in startScreenShare)
                     existing?.isScreenSharing === true ||
-                    // 2. Explicit display surface (reliable if available, but only on sender side)
+                    // 2. FALLBACK: We sent broadcastState but state-update may not be processed yet
+                    //    (race condition: offer arrives before state-update is applied to React state)
+                    pendingScreenSharePeersRef.current.has(peerId) ||
+                    // 3. Explicit display surface (reliable if available, but only on sender side)
                     trackSettings.displaySurface === 'monitor' ||
                     trackSettings.displaySurface === 'window' ||
                     trackSettings.displaySurface === 'browser' ||
-                    // 3. Track label indications
+                    // 4. Track label indications
                     track.label.toLowerCase().includes('screen') ||
-                    // 4. Fallback Heuristic: If we already have a main video track, and we get another one => Screen Share
+                    // 5. Fallback Heuristic: If we already have a main video track, and we get another one => Screen Share
                     isAdditionalVideoTrack
                 );
+
+                // Clear the pending flag once we've used it
+                if (pendingScreenSharePeersRef.current.has(peerId)) {
+                    pendingScreenSharePeersRef.current.delete(peerId);
+                }
 
                 console.log('[WebRTC] Screen share detection:', {
                     peerId,
@@ -1693,6 +1704,21 @@ export function useWebRTC({
                 }
             }
 
+            // CRITICAL: Notify all peers BEFORE renegotiation so that when
+            // ontrack fires on their side, isScreenSharing is already true.
+            // This is the primary signal used by the screen share detection logic.
+            // Also populate the ref as a race-condition fallback (in case offer arrives before state-update).
+            for (const peerId of peerConnectionsRef.current.keys()) {
+                pendingScreenSharePeersRef.current.add(peerId);
+            }
+            await broadcastState({
+                isMuted: isMuted,
+                isDeafened: isDeafened,
+                isVideoOn: isVideoOn,
+                isScreenSharing: true,
+            });
+            console.log('[WebRTC] Broadcast state-update (isScreenSharing=true) BEFORE renegotiation');
+
             // Add screen share tracks to all peer connections with renegotiation
             for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
                 // Handle audio track - use mixed or separate based on Cinema Mode success
@@ -1796,13 +1822,7 @@ export function useWebRTC({
                 }
             }
 
-            // Notify all peers that screen sharing has started
-            await broadcastState({
-                isMuted: isMuted,
-                isDeafened: isDeafened,
-                isVideoOn: isVideoOn,
-                isScreenSharing: true,
-            });
+            // (broadcastState already sent above, before renegotiation)
 
             // Handle screen share stop event
             if (screenVideoTrack) {
