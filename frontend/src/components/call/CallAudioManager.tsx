@@ -6,10 +6,10 @@ interface CallAudioManagerProps {
     remoteStreamVersion: number;
 }
 
-// Extend HTMLAudioElement type to include setSinkId (not in all TS lib versions)
-interface AudioElementWithSink extends HTMLAudioElement {
+// setSinkId is not in all TS lib versions — use a plain type for safe casting
+type AudioElementWithSink = HTMLAudioElement & {
     setSinkId?: (sinkId: string) => Promise<void>;
-}
+};
 
 /**
  * Manages WebRTC audio playback separately from the UI.
