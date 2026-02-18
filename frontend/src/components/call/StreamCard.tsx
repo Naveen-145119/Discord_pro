@@ -32,7 +32,7 @@ export interface StreamCardProps {
 export function StreamCard({
     stream,
     displayName,
-    odId: _odId, // Destructured but unused - needed for key prop in parent
+    odId: _odId,
     streamType,
     isMuted,
     isSpeaking = false,
@@ -45,25 +45,58 @@ export function StreamCard({
     avatarUrl,
 }: StreamCardProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
-    // Audio is handled by ActiveCallModal, not here
     const [isHovered, setIsHovered] = useState(false);
 
-    // Compute whether we have live video
-    const hasLiveVideo = stream?.getVideoTracks().some(t =>
-        t.readyState === 'live' && t.enabled
-    ) && streamType !== 'audio-only';
+    // ── Reactive hasLiveVideo ─────────────────────────────────────────────────
+    // CRITICAL: This MUST be a useState, not a plain variable.
+    // When a remote track's readyState changes from 'live' to 'ended',
+    // React does NOT re-render automatically — it only re-renders when props change.
+    // By subscribing to track events, we force a re-render exactly when needed.
+    const computeHasLiveVideo = () =>
+        streamType !== 'audio-only' &&
+        !!stream?.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
 
-    // Video element lifecycle management
+    const [hasLiveVideo, setHasLiveVideo] = useState(computeHasLiveVideo);
+
+    useEffect(() => {
+        // Recompute immediately when stream or streamType changes
+        setHasLiveVideo(computeHasLiveVideo());
+
+        if (!stream || streamType === 'audio-only') return;
+
+        const update = () => setHasLiveVideo(computeHasLiveVideo());
+
+        // Subscribe to track-level events so we react to readyState changes
+        const tracks = stream.getVideoTracks();
+        tracks.forEach(track => {
+            track.addEventListener('ended', update);
+            track.addEventListener('mute', update);
+            track.addEventListener('unmute', update);
+        });
+
+        // Subscribe to stream-level events for track add/remove
+        stream.addEventListener('removetrack', update);
+        stream.addEventListener('addtrack', update);
+
+        return () => {
+            tracks.forEach(track => {
+                track.removeEventListener('ended', update);
+                track.removeEventListener('mute', update);
+                track.removeEventListener('unmute', update);
+            });
+            stream.removeEventListener('removetrack', update);
+            stream.removeEventListener('addtrack', update);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stream, streamType]);
+
+    // ── Video element lifecycle ───────────────────────────────────────────────
     useEffect(() => {
         const videoElement = videoRef.current;
         if (!videoElement) return;
 
         if (!stream || !hasLiveVideo) {
-            // ── CRITICAL: Explicitly clear srcObject to prevent frozen frame ──
-            // When the video element is hidden (not unmounted), we must null out
-            // srcObject so the browser stops painting the last decoded frame.
-            // Without this, the video element retains the last frame even when
-            // hidden, and it shows through if CSS visibility changes.
+            // Explicitly clear srcObject — browser stops painting the last frame
             if (videoElement.srcObject !== null) {
                 videoElement.srcObject = null;
             }
@@ -76,12 +109,10 @@ export function StreamCard({
             videoElement.srcObject = stream;
         }
 
-        // Attempt to play
         videoElement.play().catch(err => {
             console.log('[StreamCard] Video play blocked:', displayName, err);
         });
 
-        // Cleanup on unmount
         return () => {
             videoElement.srcObject = null;
         };
