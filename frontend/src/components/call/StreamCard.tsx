@@ -54,7 +54,7 @@ export function StreamCard({
     // By subscribing to track events, we force a re-render exactly when needed.
     const computeHasLiveVideo = () =>
         streamType !== 'audio-only' &&
-        !!stream?.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
+        !!stream?.getVideoTracks().some(t => t.readyState === 'live' && t.enabled && !t.muted);
 
     const [hasLiveVideo, setHasLiveVideo] = useState(computeHasLiveVideo);
 

@@ -534,9 +534,40 @@ export function useWebRTC({
             };
             track.onmute = () => {
                 console.log('[WebRTC] Remote track MUTED:', track.kind, 'from peer:', peerId);
+                if (track.kind === 'video') {
+                    // When remote camera is turned off, the track is MUTED (not ended).
+                    // readyState stays 'live' but no frames are delivered.
+                    // We must update isVideoOn so the UI shows the avatar fallback.
+                    setParticipants(prev => {
+                        const updated = new Map(prev);
+                        const existing = updated.get(peerId);
+                        if (!existing) return updated;
+
+                        // Only update if this track belongs to the main stream (not screenStream)
+                        const isMainVideoTrack = existing.stream?.getVideoTracks().some(t => t.id === track.id);
+                        if (isMainVideoTrack) {
+                            updated.set(peerId, { ...existing, isVideoOn: false });
+                        }
+                        return updated;
+                    });
+                }
             };
             track.onunmute = () => {
                 console.log('[WebRTC] Remote track UNMUTED:', track.kind, 'from peer:', peerId);
+                if (track.kind === 'video') {
+                    // Camera turned back on — restore isVideoOn
+                    setParticipants(prev => {
+                        const updated = new Map(prev);
+                        const existing = updated.get(peerId);
+                        if (!existing) return updated;
+
+                        const isMainVideoTrack = existing.stream?.getVideoTracks().some(t => t.id === track.id);
+                        if (isMainVideoTrack) {
+                            updated.set(peerId, { ...existing, isVideoOn: true });
+                        }
+                        return updated;
+                    });
+                }
             };
 
             if (!stream) {
