@@ -23,7 +23,8 @@ import {
     ChevronDown,
     Settings,
     Plus,
-    GripVertical
+    GripVertical,
+    X,
 } from 'lucide-react';
 import type { Server, Channel } from '@/types';
 import { VoiceConnectionPanel } from '@/components/call';
@@ -36,9 +37,13 @@ import { UserArea } from './UserArea';
 interface ChannelSidebarProps {
     server: Server;
     channels: Channel[];
+    /** Mobile only: whether the drawer is open */
+    isOpen?: boolean;
+    /** Mobile only: called when the user closes the drawer */
+    onClose?: () => void;
 }
 
-export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
+export function ChannelSidebar({ server, channels, isOpen, onClose }: ChannelSidebarProps) {
     const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuthStore();
@@ -88,9 +93,9 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
     }, [channels]);
 
     const handleChannelClick = (channel: Channel) => {
-        // Mark channel as read when clicking
         useUnreadStore.getState().markAsRead(channel.$id);
         navigate(`/servers/${server.$id}/channels/${channel.$id}`);
+        onClose?.(); // close drawer on mobile after navigation
     };
 
     const handleDragStart = (event: DragStartEvent) => {
@@ -115,40 +120,31 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
             return;
         }
 
-        // Determine the target parent
         const overChannel = channels.find(c => c.$id === over.id);
         let targetParentId: string | null = null;
 
         if (overChannel) {
             if (overChannel.type === 'category') {
-                // Dropped on a category - make it a child of that category
                 targetParentId = overChannel.$id;
             } else {
-                // Dropped on another channel - use the same parent
                 targetParentId = overChannel.parentId;
             }
         }
 
-        // Get siblings in target parent
         const siblings = channelsByParent.get(targetParentId) || [];
         const oldIndex = siblings.findIndex(c => c.$id === active.id);
         const newIndex = siblings.findIndex(c => c.$id === over.id);
 
-        // Calculate new positions
         const updates: ChannelReorderItem[] = [];
-
-        // If moving to a different parent or within same parent
         const isMovingToNewParent = activeChannel.parentId !== targetParentId;
 
         if (isMovingToNewParent) {
-            // Add the moving channel with new parent
             updates.push({
                 id: activeChannel.$id,
-                position: siblings.length, // Add at end
+                position: siblings.length,
                 parentId: targetParentId,
             });
         } else if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-            // Reorder within same parent
             const reorderedSiblings = [...siblings];
             const [removed] = reorderedSiblings.splice(oldIndex, 1);
             reorderedSiblings.splice(newIndex, 0, removed);
@@ -173,8 +169,8 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
 
     const activeChannel = activeId ? channels.find(c => c.$id === activeId) : null;
 
-    return (
-        <div className="w-60 bg-background-secondary flex flex-col">
+    const sidebarContent = (
+        <div className="w-60 bg-background-secondary flex flex-col h-full">
             <button className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low hover:bg-background-modifier-hover transition-colors">
                 <span className="font-semibold text-text-heading truncate flex-1">
                     {server.name}
@@ -182,7 +178,17 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
                 {can(PERMISSIONS.MANAGE_SERVER) && (
                     <Settings size={16} className="text-interactive-normal hover:text-interactive-hover mr-2 flex-shrink-0" />
                 )}
-                <ChevronDown size={18} className="text-interactive-normal flex-shrink-0" />
+                {/* Show X on mobile, ChevronDown on desktop */}
+                {onClose ? (
+                    <button
+                        onClick={onClose}
+                        className="sm:hidden p-1 text-interactive-normal hover:text-interactive-hover hover:bg-background-modifier-hover rounded"
+                        aria-label="Close sidebar"
+                    >
+                        <X size={18} />
+                    </button>
+                ) : null}
+                <ChevronDown size={18} className="text-interactive-normal flex-shrink-0 hidden sm:block" />
             </button>
 
             <DndContext
@@ -267,6 +273,31 @@ export function ChannelSidebar({ server, channels }: ChannelSidebarProps) {
             {/* User panel */}
             <UserArea />
         </div>
+    );
+
+    return (
+        <>
+            {/* ── Desktop: static sidebar ───────────────────────────── */}
+            <div className="hidden sm:flex h-full">
+                {sidebarContent}
+            </div>
+
+            {/* ── Mobile: slide-in drawer ───────────────────────────── */}
+            <div className={`sm:hidden fixed inset-0 z-40 flex transition-all duration-300 ${isOpen ? 'visible' : 'invisible'}`}>
+                {/* Backdrop */}
+                <div
+                    className={`absolute inset-0 bg-black transition-opacity duration-300 ${isOpen ? 'opacity-60' : 'opacity-0'}`}
+                    onClick={onClose}
+                />
+                {/* Drawer */}
+                <div
+                    className={`relative z-10 h-full flex transition-transform duration-300 ease-out ${isOpen ? 'translate-x-0' : '-translate-x-full'
+                        }`}
+                >
+                    {sidebarContent}
+                </div>
+            </div>
+        </>
     );
 }
 

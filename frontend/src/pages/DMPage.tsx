@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
-    ArrowLeft,
     Phone,
     Video,
     MoreVertical,
@@ -13,7 +12,8 @@ import {
     FileText,
     Hash,
     X,
-    Search
+    Search,
+    Menu,
 } from 'lucide-react';
 import { useMessageStore, subscribeToMessages } from '@/stores/messageStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -61,10 +61,10 @@ const SAMPLE_GIFS: Record<string, string[]> = {
 
 export function DMPage() {
     const { channelId } = useParams<{ channelId: string }>();
-    const navigate = useNavigate();
     const { user } = useAuthStore();
     const { dmChannels } = useDMs();
     const { startCall: startGlobalCall } = useCallContext();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const {
         messages,
         hasMore,
@@ -304,15 +304,17 @@ export function DMPage() {
 
     return (
         <>
-            <FriendsSidebar />
+            <FriendsSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
             <div className="flex-1 flex flex-col bg-background-primary min-w-0">
                 <div className="h-12 px-4 flex items-center justify-between border-b border-background-tertiary shadow-elevation-low">
                     <div className="flex items-center gap-3">
+                        {/* Mobile: hamburger to open sidebar */}
                         <button
-                            onClick={() => navigate('/')}
-                            className="text-interactive-normal hover:text-interactive-hover md:hidden"
+                            onClick={() => setIsSidebarOpen(true)}
+                            className="sm:hidden p-1 text-interactive-normal hover:text-interactive-hover"
+                            aria-label="Open DMs"
                         >
-                            <ArrowLeft size={20} />
+                            <Menu size={20} />
                         </button>
 
                         <div className="relative">

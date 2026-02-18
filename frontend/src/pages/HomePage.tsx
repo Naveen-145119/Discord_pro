@@ -13,7 +13,8 @@ import {
     X,
     UserMinus,
     Loader2,
-    MessageCircle
+    MessageCircle,
+    Menu,
 } from 'lucide-react';
 import { ProfilePopover } from '@/components/modals/ProfilePopover';
 import { FriendsSidebar } from '@/components/layout/FriendsSidebar';
@@ -21,6 +22,7 @@ import { FriendsSidebar } from '@/components/layout/FriendsSidebar';
 type FriendTab = 'all' | 'pending' | 'online';
 
 export function HomePage() {
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const navigate = useNavigate();
 
     const {
@@ -102,12 +104,20 @@ export function HomePage() {
     };
 
     return (
-        <div className="flex flex-1 bg-background-primary">
-            <FriendsSidebar />
+        <div className="flex flex-1 bg-background-primary overflow-hidden">
+            <FriendsSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0">
                 <div className="h-12 px-4 flex items-center gap-4 border-b border-background-tertiary shadow-elevation-low">
-                    <Users size={24} className="text-interactive-muted" />
+                    {/* Mobile hamburger */}
+                    <button
+                        onClick={() => setIsSidebarOpen(true)}
+                        className="sm:hidden p-1 text-interactive-normal hover:text-interactive-hover"
+                        aria-label="Open DMs"
+                    >
+                        <Menu size={20} />
+                    </button>
+                    <Users size={24} className="text-interactive-muted hidden sm:block" />
                     <span className="font-semibold text-text-heading">Friends</span>
 
                     <div className="h-6 w-px bg-background-tertiary mx-2" />

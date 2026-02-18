@@ -56,20 +56,32 @@ export function StreamCard({
     // Video element lifecycle management
     useEffect(() => {
         const videoElement = videoRef.current;
-        if (!videoElement || !stream || !hasLiveVideo) {
+        if (!videoElement) return;
+
+        if (!stream || !hasLiveVideo) {
+            // ── CRITICAL: Explicitly clear srcObject to prevent frozen frame ──
+            // When the video element is hidden (not unmounted), we must null out
+            // srcObject so the browser stops painting the last decoded frame.
+            // Without this, the video element retains the last frame even when
+            // hidden, and it shows through if CSS visibility changes.
+            if (videoElement.srcObject !== null) {
+                videoElement.srcObject = null;
+            }
             return;
         }
 
-        // Clear and set new stream
-        videoElement.srcObject = null;
-        videoElement.srcObject = stream;
+        // Only update srcObject if the stream actually changed
+        if (videoElement.srcObject !== stream) {
+            videoElement.srcObject = null; // clear first to force repaint
+            videoElement.srcObject = stream;
+        }
 
         // Attempt to play
         videoElement.play().catch(err => {
             console.log('[StreamCard] Video play blocked:', displayName, err);
         });
 
-        // Cleanup on unmount - CRITICAL for preventing frozen frames
+        // Cleanup on unmount
         return () => {
             videoElement.srcObject = null;
         };
@@ -109,40 +121,42 @@ export function StreamCard({
         >
             {/* Audio is handled by ActiveCallModal, not individual cards */}
 
-            {/* Video layer - only rendered when we have live video */}
-            {hasLiveVideo ? (
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted={isLocal}
-                    className={`
-                        absolute inset-0 w-full h-full object-cover
-                        ${isLocal ? 'transform scale-x-[-1]' : ''}
-                    `}
-                />
-            ) : (
-                // Discord-style: Solid background color with large centered circular avatar
-                <div className="absolute inset-0 flex items-center justify-center bg-[#2b2d31]">
-                    {avatarUrl ? (
-                        <img
-                            src={avatarUrl}
-                            alt={displayName}
-                            className={`rounded-full object-cover border-4 border-[#1e1f22] ${size === 'thumbnail' ? 'w-12 h-12' : size === 'focused' ? 'w-32 h-32' : 'w-24 h-24'}`}
-                        />
-                    ) : (
-                        // Discord-style avatar with solid color background
-                        <div className={`
-                            flex items-center justify-center rounded-full
-                            bg-discord-primary border-4 border-[#1e1f22]
-                            ${size === 'thumbnail' ? 'w-12 h-12 text-lg' : size === 'focused' ? 'w-32 h-32 text-5xl' : 'w-24 h-24 text-4xl'}
-                            font-bold text-white
-                        `}>
-                            {initial}
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Video layer - always mounted, shown/hidden via CSS to prevent frozen frames */}
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted={isLocal}
+                className={`
+                    absolute inset-0 w-full h-full object-cover
+                    ${isLocal ? 'transform scale-x-[-1]' : ''}
+                    transition-opacity duration-150
+                    ${hasLiveVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+                `}
+            />
+
+            {/* Avatar fallback - shown when no live video */}
+            <div
+                className={`absolute inset-0 flex items-center justify-center bg-[#2b2d31] transition-opacity duration-150 ${hasLiveVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                    }`}
+            >
+                {avatarUrl ? (
+                    <img
+                        src={avatarUrl}
+                        alt={displayName}
+                        className={`rounded-full object-cover border-4 border-[#1e1f22] ${size === 'thumbnail' ? 'w-12 h-12' : size === 'focused' ? 'w-32 h-32' : 'w-24 h-24'}`}
+                    />
+                ) : (
+                    <div className={`
+                        flex items-center justify-center rounded-full
+                        bg-discord-primary border-4 border-[#1e1f22]
+                        ${size === 'thumbnail' ? 'w-12 h-12 text-lg' : size === 'focused' ? 'w-32 h-32 text-5xl' : 'w-24 h-24 text-4xl'}
+                        font-bold text-white
+                    `}>
+                        {initial}
+                    </div>
+                )}
+            </div>
 
             {/* Gradient overlay for text readability */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
