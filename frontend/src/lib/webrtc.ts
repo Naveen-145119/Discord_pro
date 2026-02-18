@@ -122,10 +122,10 @@ export function createProcessedAudioStream(
     }
 ): AudioPipelineControls {
     const {
-        highPassFreq = 80,
-        noiseGateThreshold: initialGateThreshold = 0.012,
-        compressorThreshold = -24,
-        compressorRatio = 4,
+        highPassFreq = 100,
+        noiseGateThreshold: initialGateThreshold = 0.025,
+        compressorThreshold = -18,
+        compressorRatio = 6,
         inputGain: initialGain = 1.0,
     } = options ?? {};
 
@@ -136,29 +136,44 @@ export function createProcessedAudioStream(
     const inputGainNode = audioCtx.createGain();
     inputGainNode.gain.value = initialGain;
 
-    // 1. High-pass filter — kills rumble below 80Hz
+    // 1. High-pass filter — kills rumble below 100Hz
     const highPass = audioCtx.createBiquadFilter();
     highPass.type = 'highpass';
     highPass.frequency.value = highPassFreq;
     highPass.Q.value = 0.7;
 
-    // 2. Dynamics compressor — evens out volume, prevents clipping
+    // 2. Band-pass filter — isolates voice frequencies (300Hz–3400Hz)
+    //    Cuts keyboard clicks, fan hiss, and low-frequency room noise
+    const bandPass = audioCtx.createBiquadFilter();
+    bandPass.type = 'bandpass';
+    bandPass.frequency.value = 1700; // Center of voice range
+    bandPass.Q.value = 0.35;         // Wide enough to cover full voice range
+
+    // 3. High-shelf cut — attenuate harsh sibilance/hiss above 8kHz
+    const highShelf = audioCtx.createBiquadFilter();
+    highShelf.type = 'highshelf';
+    highShelf.frequency.value = 8000;
+    highShelf.gain.value = -6; // -6dB cut above 8kHz
+
+    // 4. Dynamics compressor — evens out volume, prevents clipping
     const compressor = audioCtx.createDynamicsCompressor();
     compressor.threshold.value = compressorThreshold;
-    compressor.knee.value = 10;
+    compressor.knee.value = 6;
     compressor.ratio.value = compressorRatio;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
+    compressor.attack.value = 0.002;
+    compressor.release.value = 0.15;
 
-    // 3. Noise gate via ScriptProcessor
+    // 5. Noise gate via ScriptProcessor with attack/release smoothing
     const bufferSize = 2048;
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     const gateProcessor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
-    let gateOpen = false;
+    let gateGain = 0;          // Current gate gain (0=closed, 1=open) — smoothed
     let holdCounter = 0;
-    const holdSamples = Math.floor(audioCtx.sampleRate * 0.15);
+    const holdSamples = Math.floor(audioCtx.sampleRate * 0.25); // 250ms hold
     let currentGateThreshold = initialGateThreshold;
     let gateEnabled = true;
+    let attackRate = 0.3;  // How fast gate opens (per buffer)
+    let releaseRate = 0.08; // How fast gate closes (per buffer) — slower = smoother
 
     gateProcessor.onaudioprocess = (e) => {
         const input = e.inputBuffer.getChannelData(0);
@@ -170,31 +185,41 @@ export function createProcessedAudioStream(
             return;
         }
 
+        // Compute RMS of this buffer
         let sum = 0;
         for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
         const rms = Math.sqrt(sum / input.length);
 
+        // Gate logic with hold
         if (rms > currentGateThreshold) {
-            gateOpen = true;
             holdCounter = holdSamples;
         } else if (holdCounter > 0) {
             holdCounter -= input.length;
+        }
+
+        const shouldOpen = holdCounter > 0;
+
+        // Smooth attack/release instead of hard open/close
+        if (shouldOpen) {
+            gateGain = Math.min(1, gateGain + attackRate);
         } else {
-            gateOpen = false;
+            gateGain = Math.max(0, gateGain - releaseRate);
         }
 
         for (let i = 0; i < input.length; i++) {
-            output[i] = gateOpen ? input[i] : 0;
+            output[i] = input[i] * gateGain;
         }
     };
 
-    // 4. Destination
+    // 6. Destination
     const destination = audioCtx.createMediaStreamDestination();
 
-    // Wire: source → inputGain → highPass → compressor → gate → destination
+    // Wire: source → inputGain → highPass → bandPass → highShelf → compressor → gate → destination
     source.connect(inputGainNode);
     inputGainNode.connect(highPass);
-    highPass.connect(compressor);
+    highPass.connect(bandPass);
+    bandPass.connect(highShelf);
+    highShelf.connect(compressor);
     compressor.connect(gateProcessor);
     gateProcessor.connect(destination);
 
@@ -207,6 +232,8 @@ export function createProcessedAudioStream(
             source.disconnect();
             inputGainNode.disconnect();
             highPass.disconnect();
+            bandPass.disconnect();
+            highShelf.disconnect();
             compressor.disconnect();
             gateProcessor.disconnect();
             destination.disconnect();
@@ -225,25 +252,29 @@ export function createProcessedAudioStream(
         },
         setGateEnabled: (enabled: boolean) => {
             gateEnabled = enabled;
-            if (!enabled) { gateOpen = false; holdCounter = 0; }
+            if (!enabled) { gateGain = 1; holdCounter = 0; } // Open gate fully when disabled
         },
         setEchoCancellation: (_enabled: boolean) => {
             // Echo cancellation is a MediaTrack constraint — requires getUserMedia restart
-            // This is handled by handleDeviceChange in useWebRTC
             console.log('[AudioPipeline] Echo cancellation change requires track restart');
         },
         setProfile: (profile, opts) => {
             if (profile === 'voice-isolation') {
-                // Aggressive noise gate, full processing
+                // Aggressive: strong gate + full processing + band-pass active
                 gateEnabled = true;
-                currentGateThreshold = 0.012;
-                compressor.threshold.value = -24;
-                compressor.ratio.value = 4;
+                currentGateThreshold = 0.03;  // Higher threshold = more aggressive
+                attackRate = 0.4;              // Fast open
+                releaseRate = 0.06;            // Slow close = smooth
+                compressor.threshold.value = -18;
+                compressor.ratio.value = 8;    // Heavy compression
+                highShelf.gain.value = -8;     // More hiss cut
             } else if (profile === 'studio') {
                 // No gate, no compression — pure mic signal
                 gateEnabled = false;
+                gateGain = 1;
                 compressor.threshold.value = -60; // effectively bypassed
                 compressor.ratio.value = 1;
+                highShelf.gain.value = 0;
             } else {
                 // Custom — use provided opts or keep current
                 gateEnabled = true;

@@ -483,11 +483,26 @@ export function useWebRTC({
             // Monitor track state changes - IMPORTANT: Remove track from participant when it ends
             track.onended = () => {
                 console.log('[WebRTC] Remote track ENDED:', track.kind, 'from peer:', peerId);
-                // Remove the ended track from participant's stream - CRITICAL: Always create new stream for React
                 setParticipants((prev) => {
                     const updated = new Map(prev);
                     const existing = updated.get(peerId);
-                    if (existing?.stream) {
+                    if (!existing) return updated;
+
+                    // Check if the ended track is the screen share track
+                    const isScreenTrack = existing.screenStream?.getTracks().some(t => t.id === track.id);
+
+                    if (isScreenTrack) {
+                        // Screen share track ended — clear screenStream
+                        console.log('[WebRTC] Screen share track ended for peer:', peerId);
+                        updated.set(peerId, {
+                            ...existing,
+                            screenStream: undefined,
+                            isScreenSharing: false,
+                        });
+                        return updated;
+                    }
+
+                    if (existing.stream) {
                         // ALWAYS create a new MediaStream object so React detects the change
                         const newStream = new MediaStream();
 
@@ -509,7 +524,7 @@ export function useWebRTC({
 
                         updated.set(peerId, {
                             ...existing,
-                            stream: newStream, // New stream object ensures React re-render
+                            stream: newStream,
                             isVideoOn: liveVideoTracks.length > 0,
                             isScreenSharing: liveVideoTracks.length > 0 ? existing.isScreenSharing : false,
                         });
@@ -533,25 +548,29 @@ export function useWebRTC({
                 const updated = new Map(prev);
                 const existing = updated.get(peerId);
 
-                // DETECT SCREEN SHARE - Improved Logic
-                // Strategy: Determine if this is a screen share track based on metadata and existing state.
-                // Note: Standard camera video is added to the 'stream'. Screen share is added to 'screenStream'.
+                // DETECT SCREEN SHARE - Multi-signal approach
+                // The state-update signal (sent by broadcastState BEFORE renegotiation)
+                // sets existing.isScreenSharing = true. We use that as the primary signal.
+                // Fallback: displaySurface metadata (only available on sender side, not receiver).
+                // Fallback 2: isAdditionalVideoTrack (only works when camera is also on).
 
                 const hasExistingVideo = existing?.isVideoOn;
 
                 // If the existing stream ALREADY has a video track, this second video track is likely a screen share
-                // (unless it's a track replacement, but that usually happens in-place or via negotiation that clears old one)
                 const isAdditionalVideoTrack = hasExistingVideo &&
                     track.id !== existing?.stream?.getVideoTracks()[0]?.id;
 
                 const isScreenShare = track.kind === 'video' && (
-                    // 1. Explicit display surface (reliable if available)
+                    // 1. PRIMARY: Peer already told us they're screen sharing via state-update signal
+                    //    (broadcastState is called BEFORE renegotiation in startScreenShare)
+                    existing?.isScreenSharing === true ||
+                    // 2. Explicit display surface (reliable if available, but only on sender side)
                     trackSettings.displaySurface === 'monitor' ||
                     trackSettings.displaySurface === 'window' ||
                     trackSettings.displaySurface === 'browser' ||
-                    // 2. Track label indications
+                    // 3. Track label indications
                     track.label.toLowerCase().includes('screen') ||
-                    // 3. Fallback Heuristic: If we already have a main video track, and we get another one => Screen Share
+                    // 4. Fallback Heuristic: If we already have a main video track, and we get another one => Screen Share
                     isAdditionalVideoTrack
                 );
 
@@ -559,8 +578,10 @@ export function useWebRTC({
                     peerId,
                     trackKind: track.kind,
                     trackId: track.id,
+                    existingIsScreenSharing: existing?.isScreenSharing,
                     existingVideoTracks: existing?.stream?.getVideoTracks().length || 0,
                     isAdditionalVideoTrack,
+                    displaySurface: trackSettings.displaySurface,
                     result: isScreenShare
                 });
 
@@ -1018,6 +1039,34 @@ export function useWebRTC({
         updateBitrateConfig(participantCount, isScreenSharing);
     }, [participants.size, isScreenSharing, connectionState, updateBitrateConfig]);
 
+    // ── Live audio settings sync ──────────────────────────────────────────────
+    // When the user changes their profile/volume in settings DURING a call,
+    // immediately apply the new settings to the active audio pipeline.
+    useEffect(() => {
+        const unsubscribe = useMediaStore.subscribe((state, prev) => {
+            const pipeline = audioPipelineRef.current;
+            if (!pipeline) return; // Not in a call
+
+            // Profile changed
+            if (state.inputProfile !== prev.inputProfile || state.noiseSuppressionLevel !== prev.noiseSuppressionLevel) {
+                const gateThreshold =
+                    state.noiseSuppressionLevel === 'krisp' ? 0.025
+                        : state.noiseSuppressionLevel === 'standard' ? 0.018
+                            : 0.04; // 'none' = very high threshold (barely suppresses)
+
+                pipeline.setProfile(state.inputProfile, { noiseGateThreshold: gateThreshold });
+                console.log('[AudioPipeline] Live profile update:', state.inputProfile, 'gate:', gateThreshold);
+            }
+
+            // Input volume changed
+            if (state.inputVolume !== prev.inputVolume) {
+                pipeline.setInputGain(state.inputVolume / 100);
+                console.log('[AudioPipeline] Live volume update:', state.inputVolume);
+            }
+        });
+
+        return unsubscribe;
+    }, []); // Empty deps — subscribe once, pipeline ref handles the rest
 
     const joinChannel = useCallback(async (overrides?: { channelId?: string; targetUserId?: string; isInitiator?: boolean }) => {
         if (connectionState !== 'disconnected') return;
