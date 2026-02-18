@@ -11,7 +11,10 @@ import {
     setVideoBitrate,
     createVoiceActivityDetector,
     parseIceCandidate,
+    createProcessedAudioStream,
+    patchSdpForOpus,
     BITRATE_CONFIG,
+    type AudioPipelineControls,
     type ConnectionState,
     type CallParticipant,
     type WebRTCSignal,
@@ -79,6 +82,12 @@ export function useWebRTC({
     const inputMode = useMediaStore(state => state.inputMode);
     const pushToTalkKey = useMediaStore(state => state.pushToTalkKey);
 
+    // Subscribe to store for live audio processing settings
+    const inputProfile = useMediaStore(state => state.inputProfile);
+    const noiseSuppressionLevel = useMediaStore(state => state.noiseSuppressionLevel);
+    const inputVolume = useMediaStore(state => state.inputVolume);
+    const vadSensitivity = useMediaStore(state => state.vadSensitivity);
+
     const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
     const unsubscribeRef = useRef<(() => void) | null>(null);
     const voiceDetectorCleanupRef = useRef<(() => void) | null>(null);
@@ -106,6 +115,90 @@ export function useWebRTC({
     const mixedAudioStreamRef = useRef<MediaStream | null>(null);
     const micGainNodeRef = useRef<GainNode | null>(null);
     const systemGainNodeRef = useRef<GainNode | null>(null);
+
+    // Full audio processing pipeline controls (noise gate, gain, profile switching)
+    const audioPipelineRef = useRef<AudioPipelineControls | null>(null);
+
+    // ── Live-wire settings panel → audio pipeline ──────────────────────────
+    // These effects subscribe to mediaStore and apply changes in real-time
+    // without needing to restart the call.
+
+    // 1. Input Profile changes (Voice Isolation / Studio / Custom)
+    useEffect(() => {
+        const pipeline = audioPipelineRef.current;
+        if (!pipeline) return;
+        const state = useMediaStore.getState();
+        pipeline.setProfile(inputProfile, {
+            noiseGateThreshold: state.noiseSuppressionLevel === 'krisp' ? 0.008
+                : state.noiseSuppressionLevel === 'standard' ? 0.015
+                    : 0.03,
+        });
+        console.log('[WebRTC] Live: input profile changed to', inputProfile);
+    }, [inputProfile]);
+
+    // 2. Noise Suppression Level changes (Krisp / Standard / None)
+    useEffect(() => {
+        const pipeline = audioPipelineRef.current;
+        if (!pipeline || inputProfile !== 'custom') return;
+        const threshold = noiseSuppressionLevel === 'krisp' ? 0.008
+            : noiseSuppressionLevel === 'standard' ? 0.015
+                : 0.03;
+        pipeline.setGateThreshold(threshold);
+        pipeline.setGateEnabled(noiseSuppressionLevel !== 'none');
+        console.log('[WebRTC] Live: noise suppression level changed to', noiseSuppressionLevel);
+    }, [noiseSuppressionLevel, inputProfile]);
+
+    // 3. Input Volume changes (0–200 → 0–2 gain)
+    useEffect(() => {
+        const pipeline = audioPipelineRef.current;
+        if (!pipeline) return;
+        pipeline.setInputGain(inputVolume / 100);
+        console.log('[WebRTC] Live: input volume changed to', inputVolume);
+    }, [inputVolume]);
+
+    // 4. VAD Sensitivity changes (only in custom/voice-activity mode)
+    useEffect(() => {
+        const pipeline = audioPipelineRef.current;
+        if (!pipeline || inputProfile !== 'custom') return;
+        // vadSensitivity is -100 to 0 dB → convert to 0–1 RMS threshold
+        // -100dB = very sensitive (0.001), 0dB = not sensitive (0.1)
+        const threshold = Math.pow(10, vadSensitivity / 20) * 0.1;
+        pipeline.setGateThreshold(Math.max(0.001, Math.min(0.1, threshold)));
+        console.log('[WebRTC] Live: VAD sensitivity changed to', vadSensitivity, '→ threshold', threshold.toFixed(4));
+    }, [vadSensitivity, inputProfile]);
+
+    // 5. Push-to-Talk: global keydown/keyup listener
+    useEffect(() => {
+        if (inputMode !== 'push-to-talk') return;
+        if (connectionStateRef.current === 'disconnected') return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.code !== pushToTalkKey) return;
+            // Unmute while key held
+            const stream = localStreamRef.current;
+            if (stream) stream.getAudioTracks().forEach(t => { t.enabled = true; });
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.code !== pushToTalkKey) return;
+            // Mute when key released
+            const stream = localStreamRef.current;
+            if (stream) stream.getAudioTracks().forEach(t => { t.enabled = false; });
+        };
+
+        // Start muted in PTT mode
+        const stream = localStreamRef.current;
+        if (stream) stream.getAudioTracks().forEach(t => { t.enabled = false; });
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            // Re-enable tracks when leaving PTT mode
+            const s = localStreamRef.current;
+            if (s) s.getAudioTracks().forEach(t => { t.enabled = true; });
+        };
+    }, [inputMode, pushToTalkKey, connectionState]);
 
     // Dynamic Device Switching Logic
     const handleDeviceChange = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
@@ -773,14 +866,15 @@ export function useWebRTC({
                     }
 
                     const answer = await pc.createAnswer();
-                    await pc.setLocalDescription(answer);
-                    console.log('[WebRTC] Local description (answer) set');
+                    const patchedAnswerSdp = patchSdpForOpus(answer.sdp ?? '');
+                    await pc.setLocalDescription({ type: 'answer', sdp: patchedAnswerSdp });
+                    console.log('[WebRTC] Local description (answer) set with Opus patch');
 
                     // Mark connection as established BEFORE sending answer to prevent duplicate answers
                     establishedConnectionsRef.current.add(peerId);
 
                     await sendSignal(peerId, 'answer', {
-                        sdp: answer.sdp,
+                        sdp: patchedAnswerSdp,
                     });
                     console.log('[WebRTC] Answer sent to:', peerId);
                     break;
@@ -961,11 +1055,36 @@ export function useWebRTC({
                 autoGainControl: effectiveSettings.autoGainControl,
             });
 
-            // Initial join is audio-only
-            const stream = await getUserMedia({
+            // Initial join is audio-only — get raw mic stream
+            const rawStream = await getUserMedia({
                 audio: audioConstraints,
                 video: false
             });
+
+            // ── Apply audio processing pipeline ──────────────────────────────
+            // Chain: mic → HighPassFilter → DynamicsCompressor → NoiseGate → WebRTC
+            // This removes background noise, rumble, and keyboard clicks before
+            // the audio reaches any peer — same approach as Discord's noise suppression.
+            const audioPipeline = createProcessedAudioStream(
+                rawStream,
+                {
+                    highPassFreq: 80,
+                    noiseGateThreshold: 0.012,
+                    compressorThreshold: -24,
+                    compressorRatio: 4,
+                }
+            );
+            // Store full pipeline controls for live settings adjustments
+            audioPipelineRef.current = audioPipeline;
+            // Apply initial settings from store immediately
+            const mediaState = useMediaStore.getState();
+            audioPipeline.setInputGain(mediaState.inputVolume / 100);
+            audioPipeline.setProfile(mediaState.inputProfile, {
+                noiseGateThreshold: mediaState.noiseSuppressionLevel === 'krisp' ? 0.008
+                    : mediaState.noiseSuppressionLevel === 'standard' ? 0.015
+                        : 0.03,
+            });
+            const stream = audioPipeline.processedStream;
 
             localStreamRef.current = stream;
             setLocalStream(stream);
@@ -1044,11 +1163,12 @@ export function useWebRTC({
                     peerConnectionsRef.current.set(effectiveTargetUserId, pc);
 
                     const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
+                    const patchedOfferSdp = patchSdpForOpus(offer.sdp ?? '');
+                    await pc.setLocalDescription({ type: 'offer', sdp: patchedOfferSdp });
 
                     sentOffersRef.current.add(effectiveTargetUserId);
                     await sendSignal(effectiveTargetUserId, 'offer', {
-                        sdp: offer.sdp,
+                        sdp: patchedOfferSdp,
                     });
 
                     console.log('[WebRTC] Offer sent to:', effectiveTargetUserId);
@@ -1062,10 +1182,11 @@ export function useWebRTC({
                     setupPeerConnection(pc, 'all');
 
                     const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
+                    const patchedSdp = patchSdpForOpus(offer.sdp ?? '');
+                    await pc.setLocalDescription({ type: 'offer', sdp: patchedSdp });
 
                     await sendSignal('all', 'offer', {
-                        sdp: offer.sdp,
+                        sdp: patchedSdp,
                     });
                 }
             } else {
@@ -1148,6 +1269,10 @@ export function useWebRTC({
 
         voiceDetectorCleanupRef.current?.();
         voiceDetectorCleanupRef.current = null;
+
+        // Tear down the audio processing pipeline (noise gate, compressor, AudioContext)
+        audioPipelineRef.current?.cleanup();
+        audioPipelineRef.current = null;
 
         pendingSignalsRef.current = [];
 
