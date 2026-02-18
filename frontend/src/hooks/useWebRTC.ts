@@ -1350,6 +1350,17 @@ export function useWebRTC({
         if (!stream) return;
 
         if (isVideoOn) {
+            // ── Notify peers FIRST so their UI updates immediately ──────────
+            // Without this, the remote side keeps showing a frozen/blank card
+            // because it doesn't know video was turned off until renegotiation
+            // completes (which can take 200-500ms).
+            await broadcastState({
+                isMuted: isMuted,
+                isDeafened: isDeafened,
+                isVideoOn: false,
+                isScreenSharing: isScreenSharing,
+            });
+
             stream.getVideoTracks().forEach((track) => {
                 track.stop();
                 stream.removeTrack(track);
@@ -1364,8 +1375,7 @@ export function useWebRTC({
                     }
                 });
 
-                // CRITICAL: Renegotiate to inform peer about video track removal
-                // Without this, the remote peer's video element shows a frozen last frame
+                // Renegotiate to clean up the track on the remote side
                 try {
                     const offer = await pc.createOffer();
                     await pc.setLocalDescription(offer);
@@ -1382,14 +1392,10 @@ export function useWebRTC({
                 const { videoDeviceId } = useMediaStore.getState();
                 const videoConstraints = getVideoConstraints(videoDeviceId);
 
-                // Get new stream with video
                 const videoStream = await getUserMedia({
-                    audio: true, // Keep audio (will be replaced or merged)
+                    audio: true,
                     video: videoConstraints
                 });
-
-                // Note: This replaces the entire stream. 
-                // In a more advanced implementation, we would add the video track to the existing stream.
 
                 const videoTrack = videoStream.getVideoTracks()[0];
 
@@ -1409,7 +1415,6 @@ export function useWebRTC({
                             pc.addTrack(videoTrack, currentStream);
                             console.log('[WebRTC] Added video track for peer:', peerId);
 
-                            // Renegotiation is needed when adding new track
                             try {
                                 const offer = await pc.createOffer();
                                 await pc.setLocalDescription(offer);
@@ -1421,18 +1426,37 @@ export function useWebRTC({
                         }
                     }
                 }
+
                 setIsVideoOn(true);
+
+                // Notify peers that video is now on
+                await broadcastState({
+                    isMuted: isMuted,
+                    isDeafened: isDeafened,
+                    isVideoOn: true,
+                    isScreenSharing: isScreenSharing,
+                });
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to start video';
                 setError(message);
             }
         }
-    }, [isVideoOn, sendSignal]);
+    }, [isVideoOn, isMuted, isDeafened, isScreenSharing, sendSignal, broadcastState]);
 
     const stopScreenShare = useCallback(async () => {
         if (!screenStream) return;
 
         console.log('[WebRTC] Stopping screen share...');
+
+        // ── Notify peers FIRST so their UI updates immediately ──────────────
+        // This tells the remote side to show the profile picture fallback
+        // before the SDP renegotiation even starts.
+        await broadcastState({
+            isMuted: isMuted,
+            isDeafened: isDeafened,
+            isVideoOn: isVideoOn,
+            isScreenSharing: false,
+        });
 
         const screenTracks = screenStream.getTracks();
 
@@ -1446,34 +1470,30 @@ export function useWebRTC({
                 }
             });
 
-            // Remove the screen share senders
             sendersToRemove.forEach((sender) => {
                 pc.removeTrack(sender);
                 console.log('[WebRTC] Removed screen track from peer connection:', peerId);
             });
 
-            // CRITICAL: Verify and restore the microphone audio track
+            // Verify and restore the microphone audio track
             const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
             if (localAudioTrack && localStreamRef.current) {
-                // Check if local audio track is still being sent
                 const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio' && s.track?.id === localAudioTrack.id);
 
                 if (audioSenders.length === 0) {
-                    // Re-add the local audio track
                     console.log('[WebRTC] Re-adding local audio track after screen share stop');
                     pc.addTrack(localAudioTrack, localStreamRef.current);
                 } else {
                     console.log('[WebRTC] Local audio track still present after screen share stop');
                 }
 
-                // Ensure it's enabled (not muted unless user has muted)
                 if (!isMuted) {
                     localAudioTrack.enabled = true;
                     console.log('[WebRTC] Ensured local audio track is enabled');
                 }
             }
 
-            // Renegotiate to inform peer about track removal
+            // Renegotiate to clean up the track on the remote side
             try {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -1511,7 +1531,7 @@ export function useWebRTC({
         setIsScreenSharing(false);
         isScreenSharingRef.current = false;
         console.log('[WebRTC] Screen share stopped successfully');
-    }, [screenStream, isMuted, sendSignal]);
+    }, [screenStream, isMuted, isDeafened, isVideoOn, sendSignal, broadcastState]);
 
     const startScreenShare = useCallback(async () => {
         // CRITICAL: Use synchronous ref guard to prevent rapid clicks
@@ -1696,6 +1716,14 @@ export function useWebRTC({
                 }
             }
 
+            // Notify all peers that screen sharing has started
+            await broadcastState({
+                isMuted: isMuted,
+                isDeafened: isDeafened,
+                isVideoOn: isVideoOn,
+                isScreenSharing: true,
+            });
+
             // Handle screen share stop event
             if (screenVideoTrack) {
                 screenVideoTrack.onended = () => {
@@ -1733,7 +1761,7 @@ export function useWebRTC({
             const message = err instanceof Error ? err.message : 'Failed to share screen';
             setError(message);
         }
-    }, [isScreenSharing, isMuted, stopScreenShare, sendSignal]);
+    }, [isScreenSharing, isMuted, isDeafened, isVideoOn, stopScreenShare, sendSignal, broadcastState]);
 
     // Push-to-Talk: Mute by default, enable only when key is held
     useEffect(() => {
