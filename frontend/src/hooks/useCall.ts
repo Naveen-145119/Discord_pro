@@ -4,8 +4,18 @@ import { ID } from 'appwrite';
 import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
 import { useRealtime } from '@/providers/RealtimeProvider';
-import type { User, CallLogMetadata } from '@/types';
-import type { CallParticipant } from '@/lib/webrtc';
+import {
+    createPeerConnection,
+    getUserMedia,
+    getDisplayMedia,
+    setVideoBitrate,
+    createVoiceActivityDetector,
+    parseIceCandidate,
+    BITRATE_CONFIG,
+    type ConnectionState,
+    type CallParticipant,
+    type WebRTCSignal,
+} from '@/lib/webrtc';
 
 export type CallStatus = 'ringing' | 'answered' | 'ended' | 'declined';
 export type CallType = 'voice' | 'video';
@@ -37,6 +47,7 @@ interface UseCallReturn {
     remoteStreamVersion: number;
     participants: Map<string, CallParticipant>;
     remoteParticipant: CallParticipant | null;
+    connectionState: ConnectionState;
     startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
     answerCall: () => Promise<void>;
     declineCall: () => Promise<void>;
@@ -461,6 +472,7 @@ export function useCall(): UseCallReturn {
         remoteStreamVersion,
         participants: webRTC.participants,
         remoteParticipant,
+        connectionState: webRTC.connectionState,
         startCall,
         answerCall,
         declineCall,

@@ -10,6 +10,8 @@ import {
     createVoiceActivityDetector,
     parseIceCandidate,
     BITRATE_CONFIG,
+    VOICE_CONSTRAINTS,
+    VIDEO_CONSTRAINTS,
     type ConnectionState,
     type CallParticipant,
     type WebRTCSignal,
@@ -571,7 +573,7 @@ export function useWebRTC({
         setActiveChannelId(effectiveChannelId);
 
         try {
-            const stream = await getUserMedia(false);
+            const stream = await getUserMedia(VOICE_CONSTRAINTS);
             localStreamRef.current = stream;
             setLocalStream(stream);
 
@@ -838,7 +840,7 @@ export function useWebRTC({
             setIsVideoOn(false);
         } else {
             try {
-                const videoStream = await getUserMedia(true);
+                const videoStream = await getUserMedia(VIDEO_CONSTRAINTS);
                 const videoTrack = videoStream.getVideoTracks()[0];
 
                 if (videoTrack) {

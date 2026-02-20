@@ -64,10 +64,7 @@ export function CallProvider({ children }: CallProviderProps) {
         setIsStartingCall(true); // Show calling UI immediately!
 
         try {
-            await call.startCall(friendId, channelId, callType, {
-                displayName: friend.displayName,
-                avatarUrl: friend.avatarUrl || undefined,
-            });
+            await call.startCall(friendId, channelId, callType);
             console.log('[CallProvider] startCall completed');
         } catch (err) {
             console.error('[CallProvider] startCall failed:', err);
@@ -192,9 +189,6 @@ export function CallProvider({ children }: CallProviderProps) {
                                 status: 'ringing',
                             }}
                             friend={currentFriend || callFriend!}
-                            currentUserId={authUser?.$id || ''}
-                            localDisplayName={authUser?.displayName || 'You'}
-                            localAvatarUrl={authUser?.avatarUrl || undefined}
                             isMuted={call.isMuted}
                             isDeafened={call.isDeafened}
                             isVideoOn={call.isVideoOn}
@@ -207,7 +201,6 @@ export function CallProvider({ children }: CallProviderProps) {
                             participants={call.participants}
                             remoteParticipant={call.remoteParticipant}
                             isCalling={isStartingCall || call.isCalling}
-                            callDuration={callDuration}
                             onEndCall={call.endCall}
                             onToggleMute={call.toggleMute}
                             onToggleDeafen={call.toggleDeafen}
