@@ -26,7 +26,6 @@ interface UseCallReturn {
     incomingCall: ActiveCall | null;
     isInCall: boolean;
     isCalling: boolean;
-    connectionState: string;
     isMuted: boolean;
     isDeafened: boolean;
     isVideoOn: boolean;
@@ -38,7 +37,7 @@ interface UseCallReturn {
     remoteStreamVersion: number;
     participants: Map<string, CallParticipant>;
     remoteParticipant: CallParticipant | null;
-    startCall: (friendId: string, channelId: string, callType: CallType, receiverInfo?: { displayName: string; avatarUrl?: string }) => Promise<void>;
+    startCall: (friendId: string, channelId: string, callType: CallType) => Promise<void>;
     answerCall: () => Promise<void>;
     declineCall: () => Promise<void>;
     endCall: () => Promise<void>;
@@ -115,45 +114,23 @@ export function useCall(): UseCallReturn {
         return call.callerId === user?.$id;
     }, [currentCall, incomingCall, user?.$id]);
 
-    // Get target user info (friend's displayName and avatarUrl) for participant display
-    const targetUserInfo = useMemo(() => {
-        const call = currentCall || incomingCall;
-        if (!call) return undefined;
-        // If I'm the caller, target is receiver; if I'm receiver, target is caller
-        const targetUser = call.callerId === user?.$id ? call.receiver : call.caller;
-        if (targetUser) {
-            return {
-                displayName: targetUser.displayName || 'User',
-                avatarUrl: targetUser.avatarUrl || undefined, // Convert null to undefined
-            };
-        }
-        return undefined;
-    }, [currentCall, incomingCall, user?.$id]);
-
     const webRTC = useWebRTC({
         channelId: currentCall?.channelId || incomingCall?.channelId || '',
         userId: user?.$id || '',
         displayName: user?.displayName || 'User',
-        avatarUrl: user?.avatarUrl || undefined, // Convert null to undefined
         mode: 'dm',
         targetUserId,
-        targetUserInfo,
         isInitiator,
     });
 
-    const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType, receiverInfo?: { displayName: string; avatarUrl?: string }) => {
+    const startCall = useCallback(async (friendId: string, channelId: string, callType: CallType) => {
         if (!user?.$id) throw new Error('Not authenticated');
-
-        if (import.meta.env.DEV) {
-            console.log('[useCall] startCall invoked', { friendId, channelId, callType, userId: user.$id, receiverInfo });
-        }
 
         // Reset call tracking
         callLogCreatedRef.current = false;
         callStartTimeRef.current = null;
 
         try {
-            if (import.meta.env.DEV) console.log('[useCall] Calling create-call function...');
             const execution = await functions.createExecution(
                 'create-call',
                 JSON.stringify({
@@ -162,8 +139,6 @@ export function useCall(): UseCallReturn {
                     callType
                 })
             );
-
-            if (import.meta.env.DEV) console.log('[useCall] Function execution result:', execution.status, execution.responseBody);
 
             if (execution.status === 'failed') {
                 throw new Error('Function execution failed: ' + (execution.responseBody || execution.errors || 'Unknown error'));
@@ -185,27 +160,8 @@ export function useCall(): UseCallReturn {
             }
 
             const call = response.data;
-            if (import.meta.env.DEV) console.log('[useCall] Call created successfully:', call);
 
-            // IMPORTANT: Set current call IMMEDIATELY so UI shows calling state
-            // Include receiver info so targetUserInfo can derive displayName/avatarUrl
-            const activeCall: ActiveCall = {
-                $id: call.$id,
-                callerId: call.callerId,
-                receiverId: call.receiverId,
-                channelId: call.channelId,
-                callType: call.callType,
-                status: call.status || 'ringing',
-                // Include receiver info for proper display of remote participant
-                receiver: receiverInfo ? {
-                    $id: friendId,
-                    displayName: receiverInfo.displayName,
-                    avatarUrl: receiverInfo.avatarUrl || null,
-                } as User : undefined,
-            };
-
-            if (import.meta.env.DEV) console.log('[useCall] Setting currentCall to:', activeCall);
-            setCurrentCall(activeCall);
+            setCurrentCall(call as unknown as ActiveCall);
 
             // Set timeout for missed call (30 seconds)
             callTimeoutRef.current = setTimeout(async () => {
@@ -234,11 +190,9 @@ export function useCall(): UseCallReturn {
             }, 30000);
 
             const callTargetUserId = friendId;
-            if (import.meta.env.DEV) console.log('[useCall] Joining WebRTC channel...');
             await webRTC.joinChannel({ channelId, targetUserId: callTargetUserId, isInitiator: true });
-            if (import.meta.env.DEV) console.log('[useCall] WebRTC joined successfully');
         } catch (err) {
-            console.error('[useCall] Failed to start call:', err);
+            console.error('Failed to start call:', err);
             throw err;
         }
     }, [user?.$id, webRTC, createCallLogMessage]);
@@ -335,11 +289,8 @@ export function useCall(): UseCallReturn {
                     { status: 'ended' }
                 );
 
-                // Create call ended log if:
-                // 1. We haven't created one yet
-                // 2. Call was actually connected (callStartTimeRef is set OR status was answered)
-                const wasConnected = callStartTimeRef.current !== null || callToEnd.status === 'answered';
-                if (!callLogCreatedRef.current && wasConnected) {
+                // Create call ended log (only if call was answered and we haven't created one yet)
+                if (!callLogCreatedRef.current && callToEnd.status === 'answered') {
                     callLogCreatedRef.current = true;
                     await createCallLogMessage(
                         callToEnd.channelId,
@@ -499,7 +450,6 @@ export function useCall(): UseCallReturn {
         incomingCall,
         isInCall: !!currentCall && currentCall.status === 'answered',
         isCalling: !!currentCall && currentCall.status === 'ringing',
-        connectionState: webRTC.connectionState,
         isMuted: webRTC.isMuted,
         isDeafened: webRTC.isDeafened,
         isVideoOn: webRTC.isVideoOn,

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
     Phone,
     Video,
@@ -12,21 +12,17 @@ import {
     Minimize2,
     Signal,
     Clock,
-    MessageSquare
+    Headphones,
+    HeadphoneOff
 } from 'lucide-react';
 import type { ActiveCall } from '@/hooks/useCall';
 import type { User } from '@/types';
 import type { CallParticipant } from '@/lib/webrtc';
-import { CallContainer, DeviceSettingsPopover, InCallChatSection } from '@/components/call';
-import { ProfilePopover } from '@/components/modals/ProfilePopover';
-import { useMediaStore } from '@/stores/mediaStore';
+import { CallContainer } from '@/components/call';
 
 interface ActiveCallModalProps {
     call: ActiveCall;
     friend: User;
-    currentUserId: string;
-    localDisplayName: string;
-    localAvatarUrl?: string;
     isMuted: boolean;
     isDeafened: boolean;
     isVideoOn: boolean;
@@ -39,23 +35,18 @@ interface ActiveCallModalProps {
     participants: Map<string, CallParticipant>;
     remoteParticipant: CallParticipant | null;
     isCalling: boolean;
-    callDuration: number;
     onEndCall: () => void;
     onToggleMute: () => void;
     onToggleDeafen: () => void;
     onToggleVideo: () => Promise<void>;
     onToggleScreenShare: () => Promise<void>;
-    onMinimize?: () => void;
 }
 
 export function ActiveCallModal({
-    call,
+    call: _call,
     friend,
-    currentUserId,
-    localDisplayName,
-    localAvatarUrl,
     isMuted,
-    isDeafened: _isDeafened,
+    isDeafened,
     isVideoOn,
     isScreenSharing,
     isSpeaking,
@@ -66,35 +57,50 @@ export function ActiveCallModal({
     participants,
     remoteParticipant: _remoteParticipant,
     isCalling,
-    callDuration,
     onEndCall,
     onToggleMute,
-    onToggleDeafen: _onToggleDeafen,
+    onToggleDeafen,
     onToggleVideo,
     onToggleScreenShare,
-    onMinimize,
 }: ActiveCallModalProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement>(null);
+    // For Chrome WebRTC audio bug workaround - need a muted element
+    const hiddenAudioRef = useRef<HTMLAudioElement>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const gainNodeRef = useRef<GainNode | null>(null);
+    const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const callStartTimeRef = useRef<number | null>(null);
 
-    const { outputVolume: volume, setOutputVolume: setVolume } = useMediaStore();
+    const [audioPlaybackFailed, setAudioPlaybackFailed] = useState(false);
+    const [volume, setVolume] = useState(100); // 0-200%
     const [showVolumeSlider, setShowVolumeSlider] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [callDuration, setCallDuration] = useState(0);
     const [connectionQuality] = useState<'good' | 'medium' | 'poor'>('good');
-
-    // Chat state
-    const [showChat, setShowChat] = useState(false);
-    const channelId = call.channelId;
-
-    // Profile popover state
-    const [selectedProfile, setSelectedProfile] = useState<{
-        user: { displayName: string; avatarUrl?: string | null; username?: string; status?: string };
-        isCurrentUser: boolean;
-    } | null>(null);
+    const [isMinimized, setIsMinimized] = useState(false);
 
     // Convert participants Map to Array for CallContainer
     const participantsArray = useMemo(() => Array.from(participants.values()), [participants]);
+
+    // Call duration timer
+    useEffect(() => {
+        if (remoteStream && !isCalling) {
+            if (!callStartTimeRef.current) {
+                callStartTimeRef.current = Date.now();
+            }
+
+            const interval = setInterval(() => {
+                if (callStartTimeRef.current) {
+                    setCallDuration(Math.floor((Date.now() - callStartTimeRef.current) / 1000));
+                }
+            }, 1000);
+
+            return () => clearInterval(interval);
+        }
+    }, [remoteStream, isCalling]);
 
     // Format duration as MM:SS or HH:MM:SS
     const formatDuration = (seconds: number) => {
@@ -108,26 +114,173 @@ export function ActiveCallModal({
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    // Handle local stream with dynamic track changes
+    // Track if audio context has been set up for current stream
+    const audioSetupForStreamRef = useRef<string | null>(null);
+
+    /**
+     * FIXED: WebRTC Audio with Volume Control
+     * 
+     * Chrome has a bug where WebRTC remote streams need special handling:
+     * 1. Attach stream to a MUTED audio element (workaround for Chrome bug)
+     * 2. Use createMediaStreamSource (NOT createMediaElementSource) 
+     * 3. Route through GainNode for volume control
+     * 4. Connect to AudioContext.destination for playback
+     * 
+     * This approach gives us:
+     * - Working audio in Chrome
+     * - Volume control (0-200%)
+     * - Audio level monitoring
+     */
+    const setupAudioWithGain = useCallback(async (stream: MediaStream, initialVolume: number) => {
+        // Create unique ID for this stream
+        const streamId = stream.id + stream.getAudioTracks().map(t => t.id).join('');
+
+        // Skip if already set up for this exact stream
+        if (audioSetupForStreamRef.current === streamId && audioContextRef.current) {
+            console.log('[ActiveCallModal] Audio already set up for this stream, updating volume only');
+            if (gainNodeRef.current) {
+                gainNodeRef.current.gain.value = initialVolume / 100;
+            }
+            return;
+        }
+
+        console.log('[ActiveCallModal] Setting up audio for stream:', streamId.substring(0, 20));
+
+        try {
+            // Cleanup previous audio context
+            if (audioContextRef.current) {
+                try {
+                    sourceNodeRef.current?.disconnect();
+                    gainNodeRef.current?.disconnect();
+                    await audioContextRef.current.close();
+                } catch (e) {
+                    console.log('[ActiveCallModal] Error cleaning up previous audio context:', e);
+                }
+                audioContextRef.current = null;
+                gainNodeRef.current = null;
+                sourceNodeRef.current = null;
+            }
+
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                console.warn('[ActiveCallModal] No audio tracks in stream');
+                return;
+            }
+
+            // CHROME WORKAROUND: Attach stream to a MUTED audio element
+            // This "activates" the stream in Chrome without playing it directly
+            const hiddenAudio = hiddenAudioRef.current;
+            if (hiddenAudio) {
+                hiddenAudio.srcObject = stream;
+                hiddenAudio.muted = true;
+                try {
+                    await hiddenAudio.play();
+                    console.log('[ActiveCallModal] Hidden muted audio element playing (Chrome workaround)');
+                } catch (e) {
+                    console.log('[ActiveCallModal] Hidden audio play failed (may be fine):', e);
+                }
+            }
+
+            // Create AudioContext for volume control
+            const audioContext = new AudioContext();
+            audioContextRef.current = audioContext;
+
+            // Resume context if suspended (autoplay policy)
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+                console.log('[ActiveCallModal] AudioContext resumed');
+            }
+
+            // Create source from the MediaStream directly (NOT from an element)
+            // We create a new stream with just the audio track for cleaner handling
+            const audioOnlyStream = new MediaStream(audioTracks);
+            const source = audioContext.createMediaStreamSource(audioOnlyStream);
+            sourceNodeRef.current = source;
+
+            // Create gain node for volume control (allows boost beyond 100%)
+            const gainNode = audioContext.createGain();
+            gainNodeRef.current = gainNode;
+            gainNode.gain.value = initialVolume / 100;
+
+            // Connect: source -> gain -> destination (speakers)
+            source.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            audioSetupForStreamRef.current = streamId;
+
+            console.log('[ActiveCallModal] ✅ Audio pipeline set up: MediaStreamSource -> GainNode -> Destination');
+            console.log('[ActiveCallModal] Initial volume:', initialVolume, '% (gain:', gainNode.gain.value, ')');
+
+            setAudioPlaybackFailed(false);
+
+            // Monitor audio levels to verify audio is flowing
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser); // Also connect source to analyser (parallel)
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            let checkCount = 0;
+            const checkInterval = setInterval(() => {
+                if (audioContext.state === 'closed') {
+                    clearInterval(checkInterval);
+                    return;
+                }
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                const peak = Math.max(...dataArray);
+                console.log('[ActiveCallModal] Audio level - avg:', average.toFixed(2), 'peak:', peak, 'gain:', gainNode.gain.value.toFixed(2));
+                checkCount++;
+                if (checkCount >= 10) {
+                    clearInterval(checkInterval);
+                }
+            }, 1000);
+
+            return () => clearInterval(checkInterval);
+        } catch (err) {
+            console.error('[ActiveCallModal] Failed to setup audio:', err);
+            setAudioPlaybackFailed(true);
+        }
+    }, []);
+
+    // Update gain when volume changes
+    useEffect(() => {
+        if (gainNodeRef.current && audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            // Apply volume with smooth transition to avoid clicks
+            const currentTime = audioContextRef.current.currentTime;
+            gainNodeRef.current.gain.cancelScheduledValues(currentTime);
+            gainNodeRef.current.gain.setTargetAtTime(volume / 100, currentTime, 0.05);
+            console.log('[ActiveCallModal] Volume changed to:', volume, '% (gain target:', (volume / 100).toFixed(2), ')');
+        }
+    }, [volume]);
+
+    // Fix 5: Handle local stream with dynamic track changes (e.g., video being added later)
     useEffect(() => {
         if (!localStream) return;
 
         const updateLocalVideo = () => {
             if (localVideoRef.current) {
                 const videoTracks = localStream.getVideoTracks();
+                console.log('[ActiveCallModal] Local stream video tracks:', videoTracks.length,
+                    videoTracks.map(t => `${t.id.substring(0, 8)}:${t.enabled}:${t.readyState}`).join(', '));
+
                 // Only show video if there are live video tracks
                 if (videoTracks.some(t => t.readyState === 'live')) {
+                    // Reset srcObject to force re-bind
                     localVideoRef.current.srcObject = null;
                     localVideoRef.current.srcObject = localStream;
-                    localVideoRef.current.play().catch(() => { });
+                    localVideoRef.current.play().catch(() => {
+                        // Autoplay might be blocked, that's fine for local preview
+                    });
                 }
             }
         };
 
+        // Initial update
         updateLocalVideo();
 
         // Listen for track additions/removals
         const handleTrackChange = () => {
+            console.log('[ActiveCallModal] Local stream track changed');
             updateLocalVideo();
         };
 
@@ -140,38 +293,122 @@ export function ActiveCallModal({
         };
     }, [localStream]);
 
-    // Handle remote stream video only (audio is handled by CallAudioManager)
+    // Handle remote stream with gain-controlled audio
     useEffect(() => {
-        if (!remoteStream || !remoteVideoRef.current) return;
-
-        const videoTracks = remoteStream.getVideoTracks();
-        const liveVideoTracks = videoTracks.filter(t => t.readyState === 'live');
-
-        if (liveVideoTracks.length > 0) {
-            // CRITICAL: Clear srcObject before setting new stream to ensure browser resets video element
-            remoteVideoRef.current.srcObject = null;
-
-            // Small delay to ensure browser processes the reset
-            setTimeout(() => {
-                if (remoteVideoRef.current) {
-                    remoteVideoRef.current.srcObject = remoteStream;
-
-                    // Retry play with exponential backoff if blocked
-                    const attemptPlay = (attempt = 1) => {
-                        remoteVideoRef.current?.play().catch(() => {
-                            if (attempt < 3) {
-                                setTimeout(() => attemptPlay(attempt + 1), 100 * attempt);
-                            }
-                        });
-                    };
-                    attemptPlay();
-                }
-            }, 10);
-        } else {
-            // No live video tracks - clear the video element to avoid showing frozen frame
-            remoteVideoRef.current.srcObject = null;
+        if (!remoteStream) {
+            console.log('[ActiveCallModal] No remote stream yet');
+            return;
         }
-    }, [remoteStream, remoteStreamVersion]);
+
+        const audioTracks = remoteStream.getAudioTracks();
+        const videoTracks = remoteStream.getVideoTracks();
+        console.log('[ActiveCallModal] Remote stream received (version:', remoteStreamVersion, '):',
+            'audio:', audioTracks.length,
+            'video:', videoTracks.length,
+            'tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
+
+        if (audioTracks.length > 0) {
+            const track = audioTracks[0];
+            console.log('[ActiveCallModal] Remote audio track details:', {
+                id: track.id,
+                enabled: track.enabled,
+                muted: track.muted,
+                readyState: track.readyState,
+                label: track.label,
+            });
+
+            // Ensure track is enabled
+            if (!track.enabled) {
+                console.log('[ActiveCallModal] Enabling disabled audio track');
+                track.enabled = true;
+            }
+
+            // Monitor track events
+            track.onended = () => console.log('[ActiveCallModal] ⚠️ Remote audio track ENDED');
+            track.onmute = () => console.log('[ActiveCallModal] Remote audio track muted event');
+            track.onunmute = () => console.log('[ActiveCallModal] Remote audio track unmuted event');
+        }
+
+        // Force audio setup reset when stream version changes
+        // This ensures new audio tracks from screen share renegotiation are heard
+        audioSetupForStreamRef.current = null;
+
+        // Setup audio with Web Audio API for volume control
+        // Note: Using a ref to get current volume to avoid re-running on volume change
+        setupAudioWithGain(remoteStream, volume);
+
+        // Fix 4: Setup video with proper reset and retry logic
+        if (remoteVideoRef.current) {
+            const liveVideoTracks = videoTracks.filter(t => t.readyState === 'live');
+
+            if (liveVideoTracks.length > 0) {
+                console.log('[ActiveCallModal] Setting up video - live tracks:', liveVideoTracks.length,
+                    'settings:', liveVideoTracks.map(t => {
+                        const s = t.getSettings();
+                        return `${t.id.substring(0, 8)}:${s.width}x${s.height}:${s.displaySurface || 'camera'}`;
+                    }).join(', '));
+
+                // CRITICAL: Clear srcObject before setting new stream to ensure browser resets video element
+                remoteVideoRef.current.srcObject = null;
+
+                // Small delay to ensure browser processes the reset
+                setTimeout(() => {
+                    if (remoteVideoRef.current) {
+                        remoteVideoRef.current.srcObject = remoteStream;
+
+                        // Retry play with exponential backoff if blocked
+                        const attemptPlay = (attempt = 1) => {
+                            remoteVideoRef.current?.play().catch((err) => {
+                                console.log('[ActiveCallModal] Video play attempt', attempt, 'blocked:', err.message);
+                                if (attempt < 3) {
+                                    setTimeout(() => attemptPlay(attempt + 1), 100 * attempt);
+                                }
+                            });
+                        };
+                        attemptPlay();
+                    }
+                }, 10);
+            } else {
+                // No live video tracks - clear the video element to avoid showing frozen frame
+                console.log('[ActiveCallModal] No live video tracks, clearing video element');
+                remoteVideoRef.current.srcObject = null;
+            }
+        }
+
+        // Cleanup
+        return () => {
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                sourceNodeRef.current?.disconnect();
+                gainNodeRef.current?.disconnect();
+                audioContextRef.current.close().catch(() => { });
+                audioContextRef.current = null;
+                gainNodeRef.current = null;
+                sourceNodeRef.current = null;
+                audioSetupForStreamRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [remoteStream, remoteStreamVersion, setupAudioWithGain]); // volume intentionally omitted - handled by separate effect
+
+    // Handle manual audio enable (for autoplay policy)
+    const handleManualPlay = async () => {
+        try {
+            // Resume audio context if suspended
+            if (audioContextRef.current?.state === 'suspended') {
+                await audioContextRef.current.resume();
+                console.log('[ActiveCallModal] AudioContext resumed manually');
+            }
+
+            // Re-setup audio if needed
+            if (remoteStream) {
+                audioSetupForStreamRef.current = null; // Force re-setup
+                await setupAudioWithGain(remoteStream, volume);
+            }
+            setAudioPlaybackFailed(false);
+        } catch (err) {
+            console.error('Manual play failed:', err);
+        }
+    };
 
     // Fullscreen toggle
     const toggleFullscreen = async () => {
@@ -226,12 +463,93 @@ export function ActiveCallModal({
             (settings.displaySurface === 'monitor' || settings.displaySurface === 'window');
     });
 
+    // Minimized view (Picture-in-Picture style)
+    if (isMinimized) {
+        return (
+            <div
+                className="fixed bottom-4 right-4 w-80 bg-[#1e1f22] rounded-lg shadow-2xl border border-gray-700 z-[100] overflow-hidden"
+            >
+                <div className="p-3 flex items-center justify-between bg-[#2b2d31]">
+                    <div className="flex items-center gap-2">
+                        <div className="relative">
+                            <div className="w-8 h-8 rounded-full bg-discord-primary flex items-center justify-center overflow-hidden">
+                                {friend.avatarUrl ? (
+                                    <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="text-sm font-medium text-white">
+                                        {friend.displayName?.charAt(0) || '?'}
+                                    </span>
+                                )}
+                            </div>
+                            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#2b2d31] ${getStatusColor(friend.status)}`} />
+                        </div>
+                        <div>
+                            <p className="text-sm font-medium text-white">{friend.displayName}</p>
+                            <p className="text-xs text-gray-400 flex items-center gap-1">
+                                <Clock size={10} />
+                                {formatDuration(callDuration)}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setIsMinimized(false)}
+                        className="p-1.5 rounded hover:bg-white/10 text-gray-400 hover:text-white"
+                    >
+                        <Maximize2 size={16} />
+                    </button>
+                </div>
+                <div className="p-2 flex items-center justify-center gap-2">
+                    <button
+                        onClick={onToggleMute}
+                        className={`p-2 rounded-full ${isMuted ? 'bg-red-500' : 'bg-gray-600 hover:bg-gray-500'}`}
+                    >
+                        {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                    </button>
+                    <button
+                        onClick={onEndCall}
+                        className="p-2 rounded-full bg-red-500 hover:bg-red-600"
+                    >
+                        <Phone size={16} className="rotate-[135deg]" />
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div
             ref={containerRef}
             className="fixed inset-0 bg-[#1e1f22] flex flex-col z-[100]"
         >
-            {/* Audio handled by CallAudioManager in CallProvider */}
+            {/* Hidden muted audio element - Chrome WebRTC workaround */}
+            <audio
+                ref={hiddenAudioRef}
+                muted
+                autoPlay
+                playsInline
+                className="hidden"
+            />
+
+            {/* Backup audio element (fallback) */}
+            <audio
+                ref={remoteAudioRef}
+                autoPlay
+                playsInline
+                className="hidden"
+            />
+
+            {/* Autoplay blocked warning */}
+            {audioPlaybackFailed && remoteStream && (
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50">
+                    <button
+                        onClick={handleManualPlay}
+                        className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium animate-pulse flex items-center gap-2"
+                    >
+                        <Volume2 size={20} />
+                        Click to Enable Audio
+                    </button>
+                </div>
+            )}
 
             {/* Top Bar - Hide in fullscreen with screen share for immersive view */}
             <div className={`p-4 flex items-center justify-between bg-[#2b2d31] z-20 ${isFullscreen && isRemoteScreenShare ? 'absolute top-0 left-0 right-0 opacity-0 hover:opacity-100 transition-opacity duration-300 bg-gradient-to-b from-black/80 to-transparent' : ''
@@ -316,7 +634,7 @@ export function ActiveCallModal({
 
                     {/* Minimize */}
                     <button
-                        onClick={onMinimize}
+                        onClick={() => setIsMinimized(true)}
                         className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                         title="Minimize to PiP"
                     >
@@ -325,144 +643,93 @@ export function ActiveCallModal({
                 </div>
             </div>
 
-            {/* Call Area with embedded control bar - shrinks when chat is visible */}
-            <div className={`${showChat ? 'flex-1' : 'flex-1'} relative flex flex-col bg-[#1e1f22] overflow-hidden`}>
-                {/* Video/Avatars Area */}
-                <div className={`flex-1 flex items-center justify-center ${isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4'}`}>
-                    <CallContainer
-                        localStream={localStream}
-                        localDisplayName={localDisplayName}
-                        localAvatarUrl={localAvatarUrl}
-                        isLocalMuted={isMuted}
-                        isLocalVideoOn={isVideoOn}
-                        isLocalSpeaking={isSpeaking}
-                        isLocalScreenSharing={isScreenSharing}
-                        localScreenStream={screenStream}
-                        participants={participantsArray}
-                        onStopScreenShare={onToggleScreenShare}
-                        onParticipantClick={(participant) => setSelectedProfile({
-                            user: {
-                                displayName: participant.displayName,
-                                avatarUrl: participant.avatarUrl,
-                                status: participant.isLocal ? 'online' : (friend.status || 'offline')
-                            },
-                            isCurrentUser: participant.isLocal
-                        })}
-                    />
+            {/* Main Video Area - Takes full remaining space with padding for controls */}
+            <div className={`flex-1 relative flex items-center justify-center bg-[#1e1f22] overflow-hidden ${isFullscreen && isRemoteScreenShare ? 'p-0' : 'p-4 pb-24'
+                }`}>
+                {/* Use CallContainer for multi-participant grid layout */}
+                <CallContainer
+                    localStream={localStream}
+                    localDisplayName="You"
+                    isLocalMuted={isMuted}
+                    isLocalVideoOn={isVideoOn}
+                    isLocalSpeaking={isSpeaking}
+                    isLocalScreenSharing={isScreenSharing}
+                    localScreenStream={screenStream}
+                    participants={participantsArray}
+                    onStopScreenShare={onToggleScreenShare}
+                />
 
-                    {/* Screen Share Indicator */}
-                    {isScreenSharing && (
-                        <div className="absolute top-4 left-4 px-3 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm">
-                            <MonitorUp size={16} />
-                            You are sharing your screen
-                        </div>
-                    )}
-                </div>
-
-                {/* Control Bar - Always inside call area, floating at bottom */}
-                <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 p-3 bg-[#1e1f22]/90 backdrop-blur-sm rounded-lg ${isFullscreen && isRemoteScreenShare ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : ''}`}>
-                    <div className="flex items-center gap-2">
-                        {/* Mute with dropdown indicator */}
-                        <div className="relative group">
-                            <button
-                                onClick={onToggleMute}
-                                className={`p-3 rounded-full transition-all hover:scale-105 ${isMuted
-                                    ? 'bg-red-500 text-white hover:bg-red-600'
-                                    : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                                    }`}
-                                title={isMuted ? 'Unmute' : 'Mute'}
-                            >
-                                {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                            </button>
-                            <div className="absolute -right-0.5 -bottom-0.5 w-3 h-3 bg-[#3b3d44] rounded-full flex items-center justify-center text-white text-[6px] group-hover:bg-[#4b4d54]">
-                                ▼
-                            </div>
-                        </div>
-
-                        {/* Video with dropdown indicator */}
-                        <div className="relative group">
-                            <button
-                                onClick={onToggleVideo}
-                                className={`p-3 rounded-full transition-all hover:scale-105 ${isVideoOn
-                                    ? 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                                    : 'bg-red-500 text-white hover:bg-red-600'
-                                    }`}
-                                title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
-                            >
-                                {isVideoOn ? <Video size={20} /> : <VideoOff size={20} />}
-                            </button>
-                            <div className={`absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full flex items-center justify-center text-white text-[6px] ${isVideoOn ? 'bg-[#4b4d54]' : 'bg-red-600'}`}>
-                                ▼
-                            </div>
-                        </div>
-
-                        {/* Separator */}
-                        <div className="w-px h-8 bg-[#4b4d54] mx-1" />
-
-                        {/* Chat Toggle */}
-                        <button
-                            onClick={() => setShowChat(!showChat)}
-                            className={`p-3 rounded-full transition-all hover:scale-105 ${showChat
-                                ? 'bg-white/20 text-white'
-                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                                }`}
-                            title={showChat ? 'Hide Chat' : 'Show Chat'}
-                        >
-                            <MessageSquare size={20} />
-                        </button>
-
-                        {/* Device Settings */}
-                        <DeviceSettingsPopover />
-
-                        {/* Screen Share */}
-                        <button
-                            onClick={onToggleScreenShare}
-                            className={`p-3 rounded-full transition-all hover:scale-105 ${isScreenSharing
-                                ? 'bg-green-500 text-white hover:bg-green-600'
-                                : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
-                                }`}
-                            title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
-                        >
-                            <MonitorUp size={20} />
-                        </button>
-
-                        {/* End Call */}
-                        <button
-                            onClick={onEndCall}
-                            className="p-3 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105"
-                            title="End Call"
-                        >
-                            <Phone size={20} className="rotate-[135deg]" />
-                        </button>
+                {/* Screen Share Indicator */}
+                {isScreenSharing && (
+                    <div className="absolute top-4 left-4 px-3 py-2 bg-green-500/90 rounded-lg flex items-center gap-2 text-white text-sm">
+                        <MonitorUp size={16} />
+                        You are sharing your screen
                     </div>
-                </div>
+                )}
             </div>
 
-            {/* Chat Section - Takes fixed height when visible */}
-            {showChat && channelId && (
-                <div className="h-[280px] flex-shrink-0">
-                    <InCallChatSection
-                        channelId={channelId}
-                        currentUserId={currentUserId}
-                        currentUser={{ displayName: localDisplayName, avatarUrl: localAvatarUrl }}
-                        friend={friend}
-                        onClose={() => setShowChat(false)}
-                    />
+            {/* Control Bar - Always visible, floating at bottom. In fullscreen with screen share, show on hover */}
+            <div className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1e1f22] via-[#1e1f22]/95 to-transparent ${isFullscreen && isRemoteScreenShare ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : ''
+                }`}>
+                <div className="flex items-center justify-center gap-3">
+                    {/* Mute */}
+                    <button
+                        onClick={onToggleMute}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isMuted
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            }`}
+                        title={isMuted ? 'Unmute' : 'Mute'}
+                    >
+                        {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                    </button>
+
+                    {/* Deafen */}
+                    <button
+                        onClick={onToggleDeafen}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isDeafened
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            }`}
+                        title={isDeafened ? 'Undeafen' : 'Deafen'}
+                    >
+                        {isDeafened ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
+                    </button>
+
+                    {/* Video */}
+                    <button
+                        onClick={onToggleVideo}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${!isVideoOn
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            }`}
+                        title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
+                    >
+                        {isVideoOn ? <Video size={22} /> : <VideoOff size={22} />}
+                    </button>
+
+                    {/* Screen Share */}
+                    <button
+                        onClick={onToggleScreenShare}
+                        className={`p-4 rounded-full transition-all hover:scale-105 shadow-lg ${isScreenSharing
+                            ? 'bg-green-500 text-white hover:bg-green-600'
+                            : 'bg-[#3b3d44] text-white hover:bg-[#4b4d54]'
+                            }`}
+                        title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
+                    >
+                        <MonitorUp size={22} />
+                    </button>
+
+                    {/* End Call */}
+                    <button
+                        onClick={onEndCall}
+                        className="p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-105 shadow-lg"
+                        title="End Call"
+                    >
+                        <Phone size={22} className="rotate-[135deg]" />
+                    </button>
                 </div>
-            )}
-            {/* Profile Popover */}
-            {selectedProfile && (
-                <ProfilePopover
-                    user={selectedProfile.user}
-                    isOpen={!!selectedProfile}
-                    onClose={() => setSelectedProfile(null)}
-                    isCurrentUser={selectedProfile.isCurrentUser}
-                    onMessage={() => {
-                        setShowChat(true);
-                        setSelectedProfile(null);
-                    }}
-                />
-            )}
+            </div>
         </div>
     );
 }

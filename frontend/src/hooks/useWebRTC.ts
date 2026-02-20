@@ -5,31 +5,22 @@ import { useRealtime } from '@/providers/RealtimeProvider';
 import {
     createPeerConnection,
     getUserMedia,
-    getAudioConstraints,
-    getVideoConstraints,
     getDisplayMedia,
     setVideoBitrate,
     createVoiceActivityDetector,
     parseIceCandidate,
-    createProcessedAudioStream,
-    patchSdpForOpus,
     BITRATE_CONFIG,
-    type AudioPipelineControls,
     type ConnectionState,
     type CallParticipant,
     type WebRTCSignal,
 } from '@/lib/webrtc';
-import { useMediaStore } from '@/stores/mediaStore';
-import { replaceTrackInConnection, getTrackFromDevice } from '@/hooks/useMediaDevices';
 
 interface UseWebRTCProps {
     channelId: string;
     userId: string;
     displayName: string;
-    avatarUrl?: string;
     mode?: 'channel' | 'dm';
     targetUserId?: string;
-    targetUserInfo?: { displayName: string; avatarUrl?: string };
     isInitiator?: boolean;
 }
 
@@ -57,10 +48,8 @@ export function useWebRTC({
     channelId,
     userId,
     displayName: _displayName,
-    avatarUrl: _avatarUrl,
     mode = 'channel',
     targetUserId,
-    targetUserInfo,
     isInitiator = true,
 }: UseWebRTCProps): UseWebRTCReturn {
     const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -73,20 +62,6 @@ export function useWebRTC({
     const [isVideoOn, setIsVideoOn] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
-
-    // Subscribe to store changes for device switching
-    const inputDeviceId = useMediaStore(state => state.inputDeviceId);
-    const videoDeviceId = useMediaStore(state => state.videoDeviceId);
-
-    // Subscribe to store for Push-to-Talk
-    const inputMode = useMediaStore(state => state.inputMode);
-    const pushToTalkKey = useMediaStore(state => state.pushToTalkKey);
-
-    // Subscribe to store for live audio processing settings
-    const inputProfile = useMediaStore(state => state.inputProfile);
-    const noiseSuppressionLevel = useMediaStore(state => state.noiseSuppressionLevel);
-    const inputVolume = useMediaStore(state => state.inputVolume);
-    const vadSensitivity = useMediaStore(state => state.vadSensitivity);
 
     const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
     const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -110,157 +85,6 @@ export function useWebRTC({
     // Synchronous guard for screen sharing to prevent rapid clicks
     const isScreenSharingRef = useRef(false);
 
-    // Cinema Mode: Audio mixing refs (merges mic + system audio for screen share)
-    const audioMixerContextRef = useRef<AudioContext | null>(null);
-    const mixedAudioStreamRef = useRef<MediaStream | null>(null);
-    const micGainNodeRef = useRef<GainNode | null>(null);
-    const systemGainNodeRef = useRef<GainNode | null>(null);
-
-    // Full audio processing pipeline controls (noise gate, gain, profile switching)
-    const audioPipelineRef = useRef<AudioPipelineControls | null>(null);
-
-    // ── Live-wire settings panel → audio pipeline ──────────────────────────
-    // These effects subscribe to mediaStore and apply changes in real-time
-    // without needing to restart the call.
-
-    // 1. Input Profile changes (Voice Isolation / Studio / Custom)
-    useEffect(() => {
-        const pipeline = audioPipelineRef.current;
-        if (!pipeline) return;
-        const state = useMediaStore.getState();
-        pipeline.setProfile(inputProfile, {
-            noiseGateThreshold: state.noiseSuppressionLevel === 'krisp' ? 0.008
-                : state.noiseSuppressionLevel === 'standard' ? 0.015
-                    : 0.03,
-        });
-        console.log('[WebRTC] Live: input profile changed to', inputProfile);
-    }, [inputProfile]);
-
-    // 2. Noise Suppression Level changes (Krisp / Standard / None)
-    useEffect(() => {
-        const pipeline = audioPipelineRef.current;
-        if (!pipeline || inputProfile !== 'custom') return;
-        const threshold = noiseSuppressionLevel === 'krisp' ? 0.008
-            : noiseSuppressionLevel === 'standard' ? 0.015
-                : 0.03;
-        pipeline.setGateThreshold(threshold);
-        pipeline.setGateEnabled(noiseSuppressionLevel !== 'none');
-        console.log('[WebRTC] Live: noise suppression level changed to', noiseSuppressionLevel);
-    }, [noiseSuppressionLevel, inputProfile]);
-
-    // 3. Input Volume changes (0–200 → 0–2 gain)
-    useEffect(() => {
-        const pipeline = audioPipelineRef.current;
-        if (!pipeline) return;
-        pipeline.setInputGain(inputVolume / 100);
-        console.log('[WebRTC] Live: input volume changed to', inputVolume);
-    }, [inputVolume]);
-
-    // 4. VAD Sensitivity changes (only in custom/voice-activity mode)
-    useEffect(() => {
-        const pipeline = audioPipelineRef.current;
-        if (!pipeline || inputProfile !== 'custom') return;
-        // vadSensitivity is -100 to 0 dB → convert to 0–1 RMS threshold
-        // -100dB = very sensitive (0.001), 0dB = not sensitive (0.1)
-        const threshold = Math.pow(10, vadSensitivity / 20) * 0.1;
-        pipeline.setGateThreshold(Math.max(0.001, Math.min(0.1, threshold)));
-        console.log('[WebRTC] Live: VAD sensitivity changed to', vadSensitivity, '→ threshold', threshold.toFixed(4));
-    }, [vadSensitivity, inputProfile]);
-
-    // 5. Push-to-Talk: global keydown/keyup listener
-    useEffect(() => {
-        if (inputMode !== 'push-to-talk') return;
-        if (connectionStateRef.current === 'disconnected') return;
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.code !== pushToTalkKey) return;
-            // Unmute while key held
-            const stream = localStreamRef.current;
-            if (stream) stream.getAudioTracks().forEach(t => { t.enabled = true; });
-        };
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.code !== pushToTalkKey) return;
-            // Mute when key released
-            const stream = localStreamRef.current;
-            if (stream) stream.getAudioTracks().forEach(t => { t.enabled = false; });
-        };
-
-        // Start muted in PTT mode
-        const stream = localStreamRef.current;
-        if (stream) stream.getAudioTracks().forEach(t => { t.enabled = false; });
-
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
-            // Re-enable tracks when leaving PTT mode
-            const s = localStreamRef.current;
-            if (s) s.getAudioTracks().forEach(t => { t.enabled = true; });
-        };
-    }, [inputMode, pushToTalkKey, connectionState]);
-
-    // Dynamic Device Switching Logic
-    const handleDeviceChange = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
-        if (!localStreamRef.current) return;
-
-        // Avoid redundant switching if already on that device
-        const currentTrack = kind === 'audio'
-            ? localStreamRef.current.getAudioTracks()[0]
-            : localStreamRef.current.getVideoTracks()[0];
-
-        if (!currentTrack) return;
-
-        console.log(`[WebRTC] Switching ${kind} device to:`, deviceId);
-
-        try {
-            // 1. Get new track
-            const newTrack = await getTrackFromDevice(kind, deviceId);
-            if (!newTrack) {
-                console.warn(`[WebRTC] Failed to get new ${kind} track`);
-                return;
-            }
-
-            // 2. Stop old track and replace in local stream
-            currentTrack.stop();
-            localStreamRef.current?.removeTrack(currentTrack);
-            localStreamRef.current?.addTrack(newTrack);
-
-            // Force React update for local view and to notify context
-            const newStream = new MediaStream(localStreamRef.current?.getTracks() || []);
-            setLocalStream(newStream);
-
-            // 3. Replace in all peer connections
-            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
-                console.log(`[WebRTC] Replacing track for peer ${peerId}`);
-                await replaceTrackInConnection(pc, newTrack, currentTrack.id);
-            }
-        } catch (err) {
-            console.error(`[WebRTC] Error switching ${kind} device:`, err);
-        }
-    }, []);
-
-    // Handle Audio Input Change
-    useEffect(() => {
-        if (inputDeviceId && inputDeviceId !== 'default') {
-            handleDeviceChange('audio', inputDeviceId);
-        }
-    }, [inputDeviceId, handleDeviceChange]);
-
-    // Handle Video Input Change
-    useEffect(() => {
-        if (videoDeviceId && videoDeviceId !== 'default') {
-            // Only switch if video is actively on
-            const hasVideo = (localStreamRef.current?.getVideoTracks().length ?? 0) > 0;
-            if (hasVideo) {
-                handleDeviceChange('video', videoDeviceId);
-            }
-        }
-    }, [videoDeviceId, handleDeviceChange]);
-
-    // Target user info for participant display (displayName, avatarUrl)
-    const targetUserInfoRef = useRef(targetUserInfo);
-
     useEffect(() => {
         channelIdRef.current = channelId;
     }, [channelId]);
@@ -269,85 +93,12 @@ export function useWebRTC({
         targetUserIdRef.current = targetUserId;
     }, [targetUserId]);
 
-    useEffect(() => {
-        targetUserInfoRef.current = targetUserInfo;
-    }, [targetUserInfo]);
-
     const { subscribe: subscribeRealtime } = useRealtime();
-
-    /**
-     * Dynamic Bandwidth Management
-     * Adjusts video bitrate based on participant count and screen sharing state:
-     * - ≤2 participants: 1.5 Mbps (high quality)
-     * - >2 participants: 500 Kbps (low quality to reduce lag)
-     * - Screen sharing: 2.5 Mbps for screen, 200 Kbps for camera
-     */
-    const updateBitrateConfig = useCallback(async (
-        participantCount: number,
-        currentlyScreenSharing: boolean
-    ) => {
-        // Determine base bitrate based on participant count
-        const baseBitrate = participantCount <= 2
-            ? BITRATE_CONFIG.videoMedium  // 1.5 Mbps for small calls
-            : BITRATE_CONFIG.videoLow;     // 500 Kbps for larger calls
-
-        console.log('[WebRTC] Updating bitrate config:', {
-            participantCount,
-            currentlyScreenSharing,
-            baseBitrate: baseBitrate / 1000 + ' Kbps',
-        });
-
-        for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
-            const senders = pc.getSenders();
-
-            for (const sender of senders) {
-                if (!sender.track || sender.track.kind !== 'video') continue;
-
-                try {
-                    const params = sender.getParameters();
-                    if (!params.encodings || params.encodings.length === 0) {
-                        params.encodings = [{}];
-                    }
-
-                    // Determine if this is a screen share track or camera track
-                    // Screen share tracks typically have different labels
-                    const isScreenTrack = sender.track.label?.includes('screen') ||
-                        sender.track.label?.includes('monitor') ||
-                        sender.track.label?.includes('window') ||
-                        sender.track.label?.includes('display');
-
-                    let targetBitrate: number;
-
-                    if (currentlyScreenSharing) {
-                        if (isScreenTrack) {
-                            // Screen content gets priority bandwidth
-                            targetBitrate = 2_500_000; // 2.5 Mbps for screen
-                        } else {
-                            // Camera is aggressively throttled when screen sharing
-                            targetBitrate = 200_000; // 200 Kbps for camera
-                        }
-                    } else {
-                        targetBitrate = baseBitrate;
-                    }
-
-                    params.encodings[0].maxBitrate = targetBitrate;
-                    await sender.setParameters(params);
-
-                    console.log('[WebRTC] Set bitrate for', peerId,
-                        isScreenTrack ? '(screen)' : '(camera)',
-                        '→', targetBitrate / 1000, 'Kbps');
-                } catch (err) {
-                    console.error('[WebRTC] Failed to set bitrate for sender:', err);
-                }
-            }
-        }
-    }, []);
-
 
     const sendSignal = useCallback(async (
         toUserId: string,
         type: WebRTCSignal['type'],
-        data: { sdp?: string; candidate?: string; userState?: WebRTCSignal['userState'] }
+        data: { sdp?: string; candidate?: string }
     ) => {
         const currentChannelId = channelIdRef.current;
         if (!currentChannelId) {
@@ -364,39 +115,12 @@ export function useWebRTC({
                 data: {
                     targetUserId: toUserId,
                     sdp: data.sdp,
-                    candidate: data.candidate ? JSON.parse(data.candidate) : undefined,
-                    userInfo: {
-                        displayName: _displayName,
-                        avatarUrl: _avatarUrl,
-                        isMuted: isMuted, // Include current state
-                        isDeafened: isDeafened
-                    },
-                    userState: data.userState
+                    candidate: data.candidate ? JSON.parse(data.candidate) : undefined
                 }
             }),
             false
         );
-    }, [userId, isMuted, isDeafened]); // Added dependencies for current state
-
-    const broadcastState = useCallback(async (
-        newState: {
-            isMuted: boolean;
-            isDeafened: boolean;
-            isVideoOn: boolean;
-            isScreenSharing: boolean;
-        }
-    ) => {
-        // Broadcast to all connected peers
-        const peers = Array.from(peerConnectionsRef.current.keys());
-
-        console.log('[WebRTC] Broadcasting state update to', peers.length, 'peers:', newState);
-
-        for (const peerId of peers) {
-            await sendSignal(peerId, 'state-update', {
-                userState: newState
-            });
-        }
-    }, [sendSignal]);
+    }, [userId]);
 
     const setupPeerConnection = useCallback((
         pc: RTCPeerConnection,
@@ -432,9 +156,6 @@ export function useWebRTC({
 
             // Log detailed track info
             const track = event.track;
-            const trackSettings = track.getSettings();
-            const connectionState = pc.connectionState;
-
             console.log('[WebRTC] Received track details:', {
                 kind: track.kind,
                 id: track.id,
@@ -442,67 +163,16 @@ export function useWebRTC({
                 muted: track.muted,
                 readyState: track.readyState,
                 streamId: stream?.id,
-                label: track.label,
-                displaySurface: trackSettings.displaySurface,
-                width: trackSettings.width,
-                height: trackSettings.height,
-                connectionState: connectionState,
             });
-
-            // Detect if this is a screen share track
-            // Strategy: In DM calls, the initial connection is audio-only.
-            // If we receive a VIDEO track during renegotiation (connection is already established),
-            // it's likely a screen share since video calls would have had video from the start.
-            // Also check displaySurface if available (local detection)
-            const isRenegotiation = connectionState === 'connected' || connectionState === 'connecting';
-            const hasExistingParticipant = participants.has(peerId);
-
-            const isScreenShareTrack = track.kind === 'video' && (
-                // Local detection (works when sharing)
-                trackSettings.displaySurface === 'monitor' ||
-                trackSettings.displaySurface === 'window' ||
-                trackSettings.displaySurface === 'browser' ||
-                // Remote detection: if we already have a connection and receive new video = screen share
-                (isRenegotiation && hasExistingParticipant) ||
-                // Fallback: large dimensions or screen in label
-                (trackSettings.width && trackSettings.width >= 1920) ||
-                track.label.toLowerCase().includes('screen')
-            );
-
-            console.log('[WebRTC] Screen share detection:', {
-                isRenegotiation,
-                hasExistingParticipant,
-                trackKind: track.kind,
-                result: isScreenShareTrack
-            });
-
-            if (isScreenShareTrack) {
-                console.log('[WebRTC] 📺 Detected SCREEN SHARE track from peer:', peerId);
-            }
 
             // Monitor track state changes - IMPORTANT: Remove track from participant when it ends
             track.onended = () => {
                 console.log('[WebRTC] Remote track ENDED:', track.kind, 'from peer:', peerId);
+                // Remove the ended track from participant's stream - CRITICAL: Always create new stream for React
                 setParticipants((prev) => {
                     const updated = new Map(prev);
                     const existing = updated.get(peerId);
-                    if (!existing) return updated;
-
-                    // Check if the ended track is the screen share track
-                    const isScreenTrack = existing.screenStream?.getTracks().some(t => t.id === track.id);
-
-                    if (isScreenTrack) {
-                        // Screen share track ended — clear screenStream
-                        console.log('[WebRTC] Screen share track ended for peer:', peerId);
-                        updated.set(peerId, {
-                            ...existing,
-                            screenStream: undefined,
-                            isScreenSharing: false,
-                        });
-                        return updated;
-                    }
-
-                    if (existing.stream) {
+                    if (existing?.stream) {
                         // ALWAYS create a new MediaStream object so React detects the change
                         const newStream = new MediaStream();
 
@@ -524,7 +194,7 @@ export function useWebRTC({
 
                         updated.set(peerId, {
                             ...existing,
-                            stream: newStream,
+                            stream: newStream, // New stream object ensures React re-render
                             isVideoOn: liveVideoTracks.length > 0,
                             isScreenSharing: liveVideoTracks.length > 0 ? existing.isScreenSharing : false,
                         });
@@ -534,40 +204,9 @@ export function useWebRTC({
             };
             track.onmute = () => {
                 console.log('[WebRTC] Remote track MUTED:', track.kind, 'from peer:', peerId);
-                if (track.kind === 'video') {
-                    // When remote camera is turned off, the track is MUTED (not ended).
-                    // readyState stays 'live' but no frames are delivered.
-                    // We must update isVideoOn so the UI shows the avatar fallback.
-                    setParticipants(prev => {
-                        const updated = new Map(prev);
-                        const existing = updated.get(peerId);
-                        if (!existing) return updated;
-
-                        // Only update if this track belongs to the main stream (not screenStream)
-                        const isMainVideoTrack = existing.stream?.getVideoTracks().some(t => t.id === track.id);
-                        if (isMainVideoTrack) {
-                            updated.set(peerId, { ...existing, isVideoOn: false });
-                        }
-                        return updated;
-                    });
-                }
             };
             track.onunmute = () => {
                 console.log('[WebRTC] Remote track UNMUTED:', track.kind, 'from peer:', peerId);
-                if (track.kind === 'video') {
-                    // Camera turned back on — restore isVideoOn
-                    setParticipants(prev => {
-                        const updated = new Map(prev);
-                        const existing = updated.get(peerId);
-                        if (!existing) return updated;
-
-                        const isMainVideoTrack = existing.stream?.getVideoTracks().some(t => t.id === track.id);
-                        if (isMainVideoTrack) {
-                            updated.set(peerId, { ...existing, isVideoOn: true });
-                        }
-                        return updated;
-                    });
-                }
             };
 
             if (!stream) {
@@ -579,72 +218,6 @@ export function useWebRTC({
                 const updated = new Map(prev);
                 const existing = updated.get(peerId);
 
-                // DETECT SCREEN SHARE - Multi-signal approach
-                // The state-update signal (sent by broadcastState BEFORE renegotiation)
-                // sets existing.isScreenSharing = true. We use that as the primary signal.
-                // Fallback: displaySurface metadata (only available on sender side, not receiver).
-                // Fallback 2: isAdditionalVideoTrack (only works when camera is also on).
-
-                const hasExistingVideo = existing?.isVideoOn;
-
-                // If the existing stream ALREADY has a video track, this second video track is likely a screen share
-                const isAdditionalVideoTrack = hasExistingVideo &&
-                    track.id !== existing?.stream?.getVideoTracks()[0]?.id;
-
-                const isScreenShare = track.kind === 'video' && (
-                    // 1. PRIMARY: Peer already told us they're screen sharing via state-update signal
-                    //    (broadcastState is called BEFORE renegotiation in startScreenShare)
-                    existing?.isScreenSharing === true ||
-                    // 2. Explicit display surface (reliable if available, but only on sender side)
-                    trackSettings.displaySurface === 'monitor' ||
-                    trackSettings.displaySurface === 'window' ||
-                    trackSettings.displaySurface === 'browser' ||
-                    // 3. Track label indications
-                    track.label.toLowerCase().includes('screen') ||
-                    // 4. Fallback Heuristic: If we already have a main video track, and we get another one => Screen Share
-                    isAdditionalVideoTrack
-                );
-
-                console.log('[WebRTC] Screen share detection:', {
-                    peerId,
-                    trackKind: track.kind,
-                    trackId: track.id,
-                    existingIsScreenSharing: existing?.isScreenSharing,
-                    existingVideoTracks: existing?.stream?.getVideoTracks().length || 0,
-                    isAdditionalVideoTrack,
-                    displaySurface: trackSettings.displaySurface,
-                    result: isScreenShare
-                });
-
-                // For screen share tracks, create/update screenStream separately
-                if (isScreenShare && track.kind === 'video') {
-                    console.log('[WebRTC] 📺 Storing screen share track for peer:', peerId);
-                    const screenMediaStream = new MediaStream();
-                    screenMediaStream.addTrack(track);
-
-                    // Use cached user info (from signal) or existing info or "User" fallback
-                    const displayName = existing?.displayName || targetUserInfoRef.current?.displayName || 'User';
-                    const avatarUrl = existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl;
-
-                    updated.set(peerId, {
-                        ...existing,
-                        odId: peerId, // Ensure odId is set
-                        displayName,
-                        avatarUrl,
-                        isMuted: existing?.isMuted ?? false,
-                        isDeafened: existing?.isDeafened ?? false,
-                        isVideoOn: existing?.isVideoOn ?? false,
-                        isScreenSharing: true,
-                        isSpeaking: existing?.isSpeaking ?? false,
-                        stream: existing?.stream, // Keep existing camera stream
-                        cameraStream: existing?.cameraStream,
-                        screenStream: screenMediaStream, // Store screen share separately
-                    });
-
-                    return updated;
-                }
-
-                // Handling Standard Camera/Audio Tracks
                 // ALWAYS create a new MediaStream to ensure React detects changes
                 const newStream = new MediaStream();
 
@@ -676,9 +249,7 @@ export function useWebRTC({
                         });
                         console.log('[WebRTC] Added/updated audio track for peer:', peerId);
                     } else if (track.kind === 'video') {
-                        // For video: We decided this is NOT a screen share, so it's a camera track.
-                        // We replace the current camera track.
-
+                        // For video: REPLACE all video tracks with the new one to prevent accumulation
                         // Keep only audio tracks from existing stream
                         existing.stream.getAudioTracks().forEach(t => {
                             if (t.readyState === 'live') {
@@ -686,7 +257,8 @@ export function useWebRTC({
                             }
                         });
 
-                        // Add the NEW video track
+                        // Remove old video tracks - only keep the NEW video track
+                        // This prevents video track accumulation (the bug showing 2 video tracks)
                         if (track.readyState === 'live') {
                             newStream.addTrack(track);
                             console.log('[WebRTC] Replaced video track for peer:', peerId,
@@ -699,27 +271,19 @@ export function useWebRTC({
                 const liveVideoTracks = newStream.getVideoTracks().filter(t => t.readyState === 'live');
                 const liveAudioTracks = newStream.getAudioTracks().filter(t => t.readyState === 'live');
 
-                // Use cached user info (from signal) or existing info or "User" fallback
-                const displayName = existing?.displayName || targetUserInfoRef.current?.displayName || 'User';
-                const avatarUrl = existing?.avatarUrl || targetUserInfoRef.current?.avatarUrl;
-
                 updated.set(peerId, {
                     odId: peerId,
-                    displayName,
-                    avatarUrl,
+                    displayName: existing?.displayName || 'Unknown',
                     isMuted: existing?.isMuted ?? false,
                     isDeafened: existing?.isDeafened ?? false,
                     isVideoOn: liveVideoTracks.length > 0,
-                    isScreenSharing: existing?.isScreenSharing ?? false, // Preserve screen share state
+                    isScreenSharing: existing?.isScreenSharing ?? false,
                     isSpeaking: false,
                     stream: newStream, // Always new stream object
-                    cameraStream: liveVideoTracks.length > 0 ? newStream : existing?.cameraStream,
-                    screenStream: existing?.screenStream, // Preserve screen share stream
                 });
 
                 console.log('[WebRTC] Updated participant:', peerId,
                     'audio:', liveAudioTracks.length, 'video:', liveVideoTracks.length,
-                    'isScreenSharing:', existing?.isScreenSharing ?? false,
                     'tracks:', newStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`).join(', '));
 
                 return updated;
@@ -781,41 +345,6 @@ export function useWebRTC({
                     } else if (establishedConnectionsRef.current.has(peerId) && pc.connectionState === 'connected') {
                         // Already connected and not a renegotiation - this shouldn't happen
                         console.log('[WebRTC] Unexpected offer on established connection:', peerId);
-                    }
-
-                    // Update participant state with info from signal if available
-                    if (signal.userInfo) {
-                        setParticipants(prev => {
-                            const updated = new Map(prev);
-                            const existing = updated.get(peerId);
-
-                            // Initialize default participant structure if not exists
-                            // This ensures we show the name even before tracks arrive
-                            if (!existing) {
-                                // We don't have tracks yet, but we can set up the placeholder
-                                updated.set(peerId, {
-                                    odId: peerId,
-                                    displayName: signal.userInfo!.displayName || 'User',
-                                    avatarUrl: signal.userInfo!.avatarUrl,
-                                    isMuted: signal.userInfo!.isMuted ?? false,
-                                    isDeafened: signal.userInfo!.isDeafened ?? false,
-                                    isVideoOn: false,
-                                    isScreenSharing: false,
-                                    isSpeaking: false,
-                                    stream: new MediaStream(), // Empty stream for now
-                                });
-                            } else {
-                                updated.set(peerId, {
-                                    ...existing,
-                                    displayName: signal.userInfo!.displayName || existing.displayName,
-                                    avatarUrl: signal.userInfo!.avatarUrl || existing.avatarUrl,
-                                    // Update state if provided, otherwise keep existing
-                                    isMuted: signal.userInfo!.isMuted ?? existing.isMuted,
-                                    isDeafened: signal.userInfo!.isDeafened ?? existing.isDeafened,
-                                });
-                            }
-                            return updated;
-                        });
                     }
 
                     // Handle glare (both peers sent offers simultaneously)
@@ -918,15 +447,14 @@ export function useWebRTC({
                     }
 
                     const answer = await pc.createAnswer();
-                    const patchedAnswerSdp = patchSdpForOpus(answer.sdp ?? '');
-                    await pc.setLocalDescription({ type: 'answer', sdp: patchedAnswerSdp });
-                    console.log('[WebRTC] Local description (answer) set with Opus patch');
+                    await pc.setLocalDescription(answer);
+                    console.log('[WebRTC] Local description (answer) set');
 
                     // Mark connection as established BEFORE sending answer to prevent duplicate answers
                     establishedConnectionsRef.current.add(peerId);
 
                     await sendSignal(peerId, 'answer', {
-                        sdp: patchedAnswerSdp,
+                        sdp: answer.sdp,
                     });
                     console.log('[WebRTC] Answer sent to:', peerId);
                     break;
@@ -949,24 +477,6 @@ export function useWebRTC({
                         type: 'answer',
                         sdp: signal.sdp,
                     });
-
-                    // Update participant state with info from signal if available
-                    if (signal.userInfo) {
-                        setParticipants(prev => {
-                            const updated = new Map(prev);
-                            const existing = updated.get(peerId);
-                            if (existing) {
-                                updated.set(peerId, {
-                                    ...existing,
-                                    displayName: signal.userInfo!.displayName || existing.displayName,
-                                    avatarUrl: signal.userInfo!.avatarUrl || existing.avatarUrl,
-                                    isMuted: signal.userInfo!.isMuted ?? existing.isMuted,
-                                    isDeafened: signal.userInfo!.isDeafened ?? existing.isDeafened,
-                                });
-                            }
-                            return updated;
-                        });
-                    }
 
                     // Mark this connection as established
                     establishedConnectionsRef.current.add(peerId);
@@ -997,28 +507,6 @@ export function useWebRTC({
                     } else {
                         await pc.addIceCandidate(new RTCIceCandidate(candidate));
                         console.log('[WebRTC] ICE candidate added');
-                    }
-                    break;
-                }
-
-                case 'state-update': {
-                    // Handle remote participant state changes (mute, video, etc.)
-                    if (signal.userState) {
-                        console.log('[WebRTC] Received state-update from:', peerId, signal.userState);
-                        setParticipants(prev => {
-                            const updated = new Map(prev);
-                            const existing = updated.get(peerId);
-                            if (existing) {
-                                updated.set(peerId, {
-                                    ...existing,
-                                    isMuted: signal.userState!.isMuted,
-                                    isDeafened: signal.userState!.isDeafened,
-                                    isVideoOn: signal.userState!.isVideoOn,
-                                    isScreenSharing: signal.userState!.isScreenSharing,
-                                });
-                            }
-                            return updated;
-                        });
                     }
                     break;
                 }
@@ -1058,46 +546,6 @@ export function useWebRTC({
         };
     }, [activeChannelId, handleSignal, subscribeRealtime]);
 
-    // Automatically update bitrate when participant count or screen sharing changes
-    useEffect(() => {
-        // Only update if we have active connections
-        if (peerConnectionsRef.current.size === 0) return;
-        if (connectionState !== 'connected' && connectionState !== 'connecting') return;
-
-        // Participant count includes self, so add 1
-        const participantCount = participants.size + 1;
-
-        updateBitrateConfig(participantCount, isScreenSharing);
-    }, [participants.size, isScreenSharing, connectionState, updateBitrateConfig]);
-
-    // ── Live audio settings sync ──────────────────────────────────────────────
-    // When the user changes their profile/volume in settings DURING a call,
-    // immediately apply the new settings to the active audio pipeline.
-    useEffect(() => {
-        const unsubscribe = useMediaStore.subscribe((state, prev) => {
-            const pipeline = audioPipelineRef.current;
-            if (!pipeline) return; // Not in a call
-
-            // Profile changed
-            if (state.inputProfile !== prev.inputProfile || state.noiseSuppressionLevel !== prev.noiseSuppressionLevel) {
-                const gateThreshold =
-                    state.noiseSuppressionLevel === 'krisp' ? 0.025
-                        : state.noiseSuppressionLevel === 'standard' ? 0.018
-                            : 0.04; // 'none' = very high threshold (barely suppresses)
-
-                pipeline.setProfile(state.inputProfile, { noiseGateThreshold: gateThreshold });
-                console.log('[AudioPipeline] Live profile update:', state.inputProfile, 'gate:', gateThreshold);
-            }
-
-            // Input volume changed
-            if (state.inputVolume !== prev.inputVolume) {
-                pipeline.setInputGain(state.inputVolume / 100);
-                console.log('[AudioPipeline] Live volume update:', state.inputVolume);
-            }
-        });
-
-        return unsubscribe;
-    }, []); // Empty deps — subscribe once, pipeline ref handles the rest
 
     const joinChannel = useCallback(async (overrides?: { channelId?: string; targetUserId?: string; isInitiator?: boolean }) => {
         if (connectionState !== 'disconnected') return;
@@ -1123,49 +571,7 @@ export function useWebRTC({
         setActiveChannelId(effectiveChannelId);
 
         try {
-            // Get constraints from store (using effective settings based on profile)
-            const state = useMediaStore.getState();
-            const effectiveSettings = state.getEffectiveAudioSettings();
-
-            const audioConstraints = getAudioConstraints({
-                deviceId: state.inputDeviceId,
-                echoCancellation: effectiveSettings.echoCancellation,
-                noiseSuppression: effectiveSettings.noiseSuppression,
-                noiseSuppressionLevel: state.noiseSuppressionLevel,
-                autoGainControl: effectiveSettings.autoGainControl,
-            });
-
-            // Initial join is audio-only — get raw mic stream
-            const rawStream = await getUserMedia({
-                audio: audioConstraints,
-                video: false
-            });
-
-            // ── Apply audio processing pipeline ──────────────────────────────
-            // Chain: mic → HighPassFilter → DynamicsCompressor → NoiseGate → WebRTC
-            // This removes background noise, rumble, and keyboard clicks before
-            // the audio reaches any peer — same approach as Discord's noise suppression.
-            const audioPipeline = createProcessedAudioStream(
-                rawStream,
-                {
-                    highPassFreq: 80,
-                    noiseGateThreshold: 0.012,
-                    compressorThreshold: -24,
-                    compressorRatio: 4,
-                }
-            );
-            // Store full pipeline controls for live settings adjustments
-            audioPipelineRef.current = audioPipeline;
-            // Apply initial settings from store immediately
-            const mediaState = useMediaStore.getState();
-            audioPipeline.setInputGain(mediaState.inputVolume / 100);
-            audioPipeline.setProfile(mediaState.inputProfile, {
-                noiseGateThreshold: mediaState.noiseSuppressionLevel === 'krisp' ? 0.008
-                    : mediaState.noiseSuppressionLevel === 'standard' ? 0.015
-                        : 0.03,
-            });
-            const stream = audioPipeline.processedStream;
-
+            const stream = await getUserMedia(false);
             localStreamRef.current = stream;
             setLocalStream(stream);
 
@@ -1197,8 +603,7 @@ export function useWebRTC({
 
             voiceDetectorCleanupRef.current = createVoiceActivityDetector(
                 stream,
-                setIsSpeaking,
-                // Optional: Pass sensitivity from store if VAD supports it
+                setIsSpeaking  // Removed verbose logging - voice detector works fine
             );
 
             // Also do a quick audio level check to verify mic is working
@@ -1243,12 +648,11 @@ export function useWebRTC({
                     peerConnectionsRef.current.set(effectiveTargetUserId, pc);
 
                     const offer = await pc.createOffer();
-                    const patchedOfferSdp = patchSdpForOpus(offer.sdp ?? '');
-                    await pc.setLocalDescription({ type: 'offer', sdp: patchedOfferSdp });
+                    await pc.setLocalDescription(offer);
 
                     sentOffersRef.current.add(effectiveTargetUserId);
                     await sendSignal(effectiveTargetUserId, 'offer', {
-                        sdp: patchedOfferSdp,
+                        sdp: offer.sdp,
                     });
 
                     console.log('[WebRTC] Offer sent to:', effectiveTargetUserId);
@@ -1262,11 +666,10 @@ export function useWebRTC({
                     setupPeerConnection(pc, 'all');
 
                     const offer = await pc.createOffer();
-                    const patchedSdp = patchSdpForOpus(offer.sdp ?? '');
-                    await pc.setLocalDescription({ type: 'offer', sdp: patchedSdp });
+                    await pc.setLocalDescription(offer);
 
                     await sendSignal('all', 'offer', {
-                        sdp: patchedSdp,
+                        sdp: offer.sdp,
                     });
                 }
             } else {
@@ -1350,10 +753,6 @@ export function useWebRTC({
         voiceDetectorCleanupRef.current?.();
         voiceDetectorCleanupRef.current = null;
 
-        // Tear down the audio processing pipeline (noise gate, compressor, AudioContext)
-        audioPipelineRef.current?.cleanup();
-        audioPipelineRef.current = null;
-
         pendingSignalsRef.current = [];
 
         pendingIceCandidatesRef.current.clear();
@@ -1388,95 +787,58 @@ export function useWebRTC({
 
             console.log('[WebRTC] toggleMute: muted =', newMutedState, 'audioTrack.enabled =', audioTrack.enabled);
 
-            // Broadcast new state
-            broadcastState({
-                isMuted: newMutedState,
-                isDeafened: isDeafened,
-                isVideoOn: isVideoOn,
-                isScreenSharing: isScreenSharing
-            });
+            // Also verify all peer connection audio senders are in sync
+            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+                const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
+                audioSenders.forEach(sender => {
+                    if (sender.track) {
+                        sender.track.enabled = !newMutedState;
+                        console.log('[WebRTC] Synced audio sender for peer:', peerId, 'enabled:', sender.track.enabled);
+                    }
+                });
+            }
         }
-    }, [isMuted, isDeafened, isVideoOn, isScreenSharing, broadcastState]);
+    }, [isMuted]);
 
     const toggleDeafen = useCallback(() => {
-        const newDeafenedState = !isDeafened;
-        setIsDeafened(newDeafenedState);
+        const newDeafened = !isDeafened;
+        setIsDeafened(newDeafened);
 
-        // Broadcast new state
-        broadcastState({
-            isMuted: isMuted,
-            isDeafened: newDeafenedState,
-            isVideoOn: isVideoOn,
-            isScreenSharing: isScreenSharing
-        });
-
-        // Also mute mic when deafened (Discord behavior)
-        if (newDeafenedState && !isMuted) {
-            toggleMute();
-        }
-
-        // Mute all remote audio tracks
-        participants.forEach(p => {
-            if (p.stream) {
-                p.stream.getAudioTracks().forEach(t => {
-                    t.enabled = !newDeafenedState;
+        participants.forEach((participant) => {
+            if (participant.stream) {
+                participant.stream.getAudioTracks().forEach((track) => {
+                    track.enabled = !newDeafened;
                 });
             }
         });
-    }, [isDeafened, isMuted, isVideoOn, isScreenSharing, broadcastState, participants, toggleMute]);
+
+        if (newDeafened && !isMuted) {
+            toggleMute();
+        }
+    }, [isDeafened, isMuted, participants, toggleMute]);
 
     const toggleVideo = useCallback(async () => {
         const stream = localStreamRef.current;
         if (!stream) return;
 
         if (isVideoOn) {
-            // ── Notify peers FIRST so their UI updates immediately ──────────
-            // Without this, the remote side keeps showing a frozen/blank card
-            // because it doesn't know video was turned off until renegotiation
-            // completes (which can take 200-500ms).
-            await broadcastState({
-                isMuted: isMuted,
-                isDeafened: isDeafened,
-                isVideoOn: false,
-                isScreenSharing: isScreenSharing,
-            });
-
             stream.getVideoTracks().forEach((track) => {
                 track.stop();
                 stream.removeTrack(track);
             });
 
-            // Remove video senders from all peer connections AND renegotiate
-            for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+            peerConnectionsRef.current.forEach((pc) => {
                 pc.getSenders().forEach((sender) => {
                     if (sender.track?.kind === 'video') {
                         pc.removeTrack(sender);
-                        console.log('[WebRTC] Removed video track from peer:', peerId);
                     }
                 });
-
-                // Renegotiate to clean up the track on the remote side
-                try {
-                    const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
-                    await sendSignal(peerId, 'offer', { sdp: offer.sdp });
-                    console.log('[WebRTC] Sent renegotiation offer for video off to:', peerId);
-                } catch (err) {
-                    console.error('[WebRTC] Failed to renegotiate for video off:', err);
-                }
-            }
+            });
 
             setIsVideoOn(false);
         } else {
             try {
-                const { videoDeviceId } = useMediaStore.getState();
-                const videoConstraints = getVideoConstraints(videoDeviceId);
-
-                const videoStream = await getUserMedia({
-                    audio: true,
-                    video: videoConstraints
-                });
-
+                const videoStream = await getUserMedia(true);
                 const videoTrack = videoStream.getVideoTracks()[0];
 
                 if (videoTrack) {
@@ -1495,6 +857,7 @@ export function useWebRTC({
                             pc.addTrack(videoTrack, currentStream);
                             console.log('[WebRTC] Added video track for peer:', peerId);
 
+                            // Renegotiation is needed when adding new track
                             try {
                                 const offer = await pc.createOffer();
                                 await pc.setLocalDescription(offer);
@@ -1506,37 +869,18 @@ export function useWebRTC({
                         }
                     }
                 }
-
                 setIsVideoOn(true);
-
-                // Notify peers that video is now on
-                await broadcastState({
-                    isMuted: isMuted,
-                    isDeafened: isDeafened,
-                    isVideoOn: true,
-                    isScreenSharing: isScreenSharing,
-                });
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to start video';
                 setError(message);
             }
         }
-    }, [isVideoOn, isMuted, isDeafened, isScreenSharing, sendSignal, broadcastState]);
+    }, [isVideoOn, sendSignal]);
 
     const stopScreenShare = useCallback(async () => {
         if (!screenStream) return;
 
         console.log('[WebRTC] Stopping screen share...');
-
-        // ── Notify peers FIRST so their UI updates immediately ──────────────
-        // This tells the remote side to show the profile picture fallback
-        // before the SDP renegotiation even starts.
-        await broadcastState({
-            isMuted: isMuted,
-            isDeafened: isDeafened,
-            isVideoOn: isVideoOn,
-            isScreenSharing: false,
-        });
 
         const screenTracks = screenStream.getTracks();
 
@@ -1550,30 +894,34 @@ export function useWebRTC({
                 }
             });
 
+            // Remove the screen share senders
             sendersToRemove.forEach((sender) => {
                 pc.removeTrack(sender);
                 console.log('[WebRTC] Removed screen track from peer connection:', peerId);
             });
 
-            // Verify and restore the microphone audio track
+            // CRITICAL: Verify and restore the microphone audio track
             const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
             if (localAudioTrack && localStreamRef.current) {
+                // Check if local audio track is still being sent
                 const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio' && s.track?.id === localAudioTrack.id);
 
                 if (audioSenders.length === 0) {
+                    // Re-add the local audio track
                     console.log('[WebRTC] Re-adding local audio track after screen share stop');
                     pc.addTrack(localAudioTrack, localStreamRef.current);
                 } else {
                     console.log('[WebRTC] Local audio track still present after screen share stop');
                 }
 
+                // Ensure it's enabled (not muted unless user has muted)
                 if (!isMuted) {
                     localAudioTrack.enabled = true;
                     console.log('[WebRTC] Ensured local audio track is enabled');
                 }
             }
 
-            // Renegotiate to clean up the track on the remote side
+            // Renegotiate to inform peer about track removal
             try {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -1592,26 +940,11 @@ export function useWebRTC({
             }
             track.stop();
         });
-
-        // Clean up Cinema Mode audio mixer
-        if (audioMixerContextRef.current) {
-            try {
-                audioMixerContextRef.current.close();
-                console.log('[WebRTC] 🎬 Cinema Mode audio mixer cleaned up');
-            } catch {
-                // Ignore errors during cleanup
-            }
-            audioMixerContextRef.current = null;
-            mixedAudioStreamRef.current = null;
-            micGainNodeRef.current = null;
-            systemGainNodeRef.current = null;
-        }
-
         setScreenStream(null);
         setIsScreenSharing(false);
         isScreenSharingRef.current = false;
         console.log('[WebRTC] Screen share stopped successfully');
-    }, [screenStream, isMuted, isDeafened, isVideoOn, sendSignal, broadcastState]);
+    }, [screenStream, isMuted, sendSignal]);
 
     const startScreenShare = useCallback(async () => {
         // CRITICAL: Use synchronous ref guard to prevent rapid clicks
@@ -1632,112 +965,32 @@ export function useWebRTC({
             // Get screen audio track if available (system audio)
             const screenAudioTrack = stream.getAudioTracks()[0];
 
-            // CINEMA MODE: Mix microphone + system audio for immersive screen sharing
-            // When both mic and system audio are available, merge them so peers hear:
-            // - Your voice commentary
-            // - The game/movie/video audio
-            let mixedAudioTrack: MediaStreamTrack | null = null;
-            const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
-
-            if (screenAudioTrack && localAudioTrack && !isMuted) {
-                try {
-                    console.log('[WebRTC] 🎬 Cinema Mode: Mixing mic + system audio');
-
-                    // Clean up previous mixer if exists
-                    if (audioMixerContextRef.current) {
-                        await audioMixerContextRef.current.close().catch(() => { });
-                    }
-
-                    // Create AudioContext for mixing
-                    const audioContext = new AudioContext();
-                    audioMixerContextRef.current = audioContext;
-
-                    // Create destination (output)
-                    const destination = audioContext.createMediaStreamDestination();
-
-                    // Create gain nodes for volume control
-                    const micGain = audioContext.createGain();
-                    const systemGain = audioContext.createGain();
-                    micGainNodeRef.current = micGain;
-                    systemGainNodeRef.current = systemGain;
-
-                    // Set initial volumes (mic slightly louder for clear voice)
-                    micGain.gain.value = 1.0;
-                    systemGain.gain.value = 0.8; // System audio slightly quieter
-
-                    // Create sources from both audio streams
-                    const micStream = new MediaStream([localAudioTrack]);
-                    const systemStream = new MediaStream([screenAudioTrack]);
-
-                    const micSource = audioContext.createMediaStreamSource(micStream);
-                    const systemSource = audioContext.createMediaStreamSource(systemStream);
-
-                    // Connect: sources -> gains -> destination
-                    micSource.connect(micGain);
-                    systemSource.connect(systemGain);
-                    micGain.connect(destination);
-                    systemGain.connect(destination);
-
-                    // Get the mixed output track
-                    mixedAudioStreamRef.current = destination.stream;
-                    mixedAudioTrack = destination.stream.getAudioTracks()[0];
-
-                    console.log('[WebRTC] 🎬 Cinema Mode audio mixer created:', {
-                        micTrack: localAudioTrack.label,
-                        systemTrack: screenAudioTrack.label,
-                        mixedTrack: mixedAudioTrack?.id?.substring(0, 8),
-                    });
-                } catch (err) {
-                    console.error('[WebRTC] Failed to create audio mixer, falling back to separate tracks:', err);
-                    mixedAudioTrack = null;
-                }
-            }
-
             // Add screen share tracks to all peer connections with renegotiation
             for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
-                // Handle audio track - use mixed or separate based on Cinema Mode success
-                if (mixedAudioTrack) {
-                    // Cinema Mode: Send single mixed track
-                    // First remove any existing audio senders
+                // CRITICAL: First, verify the microphone audio track is present and working
+                const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
+                if (localAudioTrack && localStreamRef.current) {
+                    // Check current audio senders
                     const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                    for (const sender of audioSenders) {
-                        try {
-                            await sender.replaceTrack(mixedAudioTrack);
-                            console.log('[WebRTC] 🎬 Replaced audio with mixed track for peer:', peerId);
-                        } catch {
-                            // If replace fails, remove and add
-                            pc.removeTrack(sender);
-                            pc.addTrack(mixedAudioTrack, mixedAudioStreamRef.current!);
-                            console.log('[WebRTC] 🎬 Added mixed audio track for peer:', peerId);
-                        }
+                    const hasMicrophoneTrack = audioSenders.some(s => s.track?.id === localAudioTrack.id);
+
+                    if (!hasMicrophoneTrack) {
+                        // Add the microphone audio track if it's missing
+                        pc.addTrack(localAudioTrack, localStreamRef.current);
+                        console.log('[WebRTC] Added missing microphone audio track before screen share:', peerId);
                     }
-                    if (audioSenders.length === 0 && mixedAudioStreamRef.current) {
-                        pc.addTrack(mixedAudioTrack, mixedAudioStreamRef.current);
-                        console.log('[WebRTC] 🎬 Added mixed audio track (fresh) for peer:', peerId);
+
+                    // Ensure it's enabled (unless muted)
+                    if (!isMuted) {
+                        localAudioTrack.enabled = true;
                     }
+                    console.log('[WebRTC] Microphone audio track status - enabled:', localAudioTrack.enabled, 'readyState:', localAudioTrack.readyState);
                 } else {
-                    // Fallback: Send mic and system audio as separate tracks
-                    if (localAudioTrack && localStreamRef.current) {
-                        const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                        const hasMicrophoneTrack = audioSenders.some(s => s.track?.id === localAudioTrack.id);
-
-                        if (!hasMicrophoneTrack) {
-                            pc.addTrack(localAudioTrack, localStreamRef.current);
-                            console.log('[WebRTC] Added microphone audio track:', peerId);
-                        }
-
-                        if (!isMuted) {
-                            localAudioTrack.enabled = true;
-                        }
-                    }
-
-                    if (screenAudioTrack) {
-                        pc.addTrack(screenAudioTrack, stream);
-                        console.log('[WebRTC] Added screen audio track (system audio):', peerId);
-                    }
+                    console.warn('[WebRTC] No local audio track available during screen share!');
                 }
 
-                // Remove existing video senders before adding screen share
+                // Fix 3: Remove existing video senders AND null senders before adding new screen share track
+                // This prevents sender-side track accumulation when starting screen share multiple times
                 const allVideoSenders = pc.getSenders().filter(s => s.track?.kind === 'video' || s.track === null);
                 if (allVideoSenders.length > 0) {
                     console.log('[WebRTC] Removing', allVideoSenders.length, 'existing/null senders before screen share');
@@ -1753,7 +1006,14 @@ export function useWebRTC({
                 // Add screen video track
                 if (screenVideoTrack) {
                     pc.addTrack(screenVideoTrack, stream);
-                    console.log('[WebRTC] Added screen video track:', peerId);
+                    console.log('[WebRTC] Added screen video track to peer connection:', peerId);
+                }
+
+                // Add screen audio track if available (system audio from screen)
+                // Note: This is separate from the microphone - it's the system/tab audio
+                if (screenAudioTrack) {
+                    pc.addTrack(screenAudioTrack, stream);
+                    console.log('[WebRTC] Added screen audio track (system audio) to peer connection:', peerId);
                 }
 
                 // CRITICAL: Verify microphone audio track is still present and enabled after adding screen tracks
@@ -1796,18 +1056,10 @@ export function useWebRTC({
                 }
             }
 
-            // Notify all peers that screen sharing has started
-            await broadcastState({
-                isMuted: isMuted,
-                isDeafened: isDeafened,
-                isVideoOn: isVideoOn,
-                isScreenSharing: true,
-            });
-
             // Handle screen share stop event
             if (screenVideoTrack) {
                 screenVideoTrack.onended = () => {
-                    if (import.meta.env.DEV) console.log('[WebRTC] Screen share ended by user');
+                    console.log('[WebRTC] Screen share ended by user');
                     stopScreenShare();
                 };
             }
@@ -1816,16 +1068,14 @@ export function useWebRTC({
             const audioCheckInterval = setInterval(() => {
                 const localAudio = localStreamRef.current?.getAudioTracks()[0];
                 if (localAudio) {
-                    if (import.meta.env.DEV) {
-                        console.log('[WebRTC] Screen share audio check - local track:',
-                            'enabled:', localAudio.enabled,
-                            'muted:', localAudio.muted,
-                            'readyState:', localAudio.readyState);
-                    }
+                    console.log('[WebRTC] Screen share audio check - local track:',
+                        'enabled:', localAudio.enabled,
+                        'muted:', localAudio.muted,
+                        'readyState:', localAudio.readyState);
 
                     // Ensure audio remains enabled if not muted
                     if (!localAudio.enabled && !isMuted) {
-                        if (import.meta.env.DEV) console.log('[WebRTC] ⚠️ Audio track disabled during screen share, re-enabling...');
+                        console.log('[WebRTC] ⚠️ Audio track disabled during screen share, re-enabling...');
                         localAudio.enabled = true;
                     }
                 } else {
@@ -1841,65 +1091,7 @@ export function useWebRTC({
             const message = err instanceof Error ? err.message : 'Failed to share screen';
             setError(message);
         }
-    }, [isScreenSharing, isMuted, isDeafened, isVideoOn, stopScreenShare, sendSignal, broadcastState]);
-
-    // Push-to-Talk: Mute by default, enable only when key is held
-    useEffect(() => {
-        if (inputMode !== 'push-to-talk' || !localStream) return;
-
-        const audioTrack = localStream.getAudioTracks()[0];
-        if (!audioTrack) return;
-
-        // In PTT mode, start with audio disabled (muted)
-        audioTrack.enabled = false;
-        setIsMuted(true);
-
-        // Also sync with peer connection senders
-        const syncPeerSenders = (enabled: boolean) => {
-            for (const [, pc] of peerConnectionsRef.current.entries()) {
-                const audioSenders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                audioSenders.forEach(sender => {
-                    if (sender.track) {
-                        sender.track.enabled = enabled;
-                    }
-                });
-            }
-        };
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            // Match against key code (e.g., 'Space', 'KeyV', etc.)
-            if (e.code === pushToTalkKey && !e.repeat) {
-                audioTrack.enabled = true;
-                setIsMuted(false);
-                syncPeerSenders(true);
-                console.log('[WebRTC] PTT: Key down - unmuted');
-            }
-        };
-
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.code === pushToTalkKey) {
-                audioTrack.enabled = false;
-                setIsMuted(true);
-                syncPeerSenders(false);
-                console.log('[WebRTC] PTT: Key up - muted');
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-
-        console.log('[WebRTC] Push-to-Talk enabled with key:', pushToTalkKey);
-
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
-            // Restore normal mic state when switching away from PTT
-            if (audioTrack.readyState === 'live') {
-                audioTrack.enabled = true;
-                setIsMuted(false);
-            }
-        };
-    }, [inputMode, pushToTalkKey, localStream]);
+    }, [isScreenSharing, isMuted, stopScreenShare, sendSignal]);
 
     useEffect(() => {
         return () => {
