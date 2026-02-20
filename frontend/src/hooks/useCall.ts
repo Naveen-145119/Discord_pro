@@ -4,18 +4,8 @@ import { ID } from 'appwrite';
 import { useAuthStore } from '@/stores/authStore';
 import { useWebRTC } from './useWebRTC';
 import { useRealtime } from '@/providers/RealtimeProvider';
-import {
-    createPeerConnection,
-    getUserMedia,
-    getDisplayMedia,
-    setVideoBitrate,
-    createVoiceActivityDetector,
-    parseIceCandidate,
-    BITRATE_CONFIG,
-    type ConnectionState,
-    type CallParticipant,
-    type WebRTCSignal,
-} from '@/lib/webrtc';
+import type { User, CallLogMetadata } from '@/types';
+import type { CallParticipant, ConnectionState } from '@/lib/webrtc';
 
 export type CallStatus = 'ringing' | 'answered' | 'ended' | 'declined';
 export type CallType = 'voice' | 'video';

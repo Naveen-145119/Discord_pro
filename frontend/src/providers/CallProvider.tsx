@@ -5,7 +5,6 @@ import { IncomingCallModal } from '@/components/modals/IncomingCallModal';
 import { ActiveCallModal } from '@/components/modals/ActiveCallModal';
 import { CallAudioManager } from '@/components/call';
 import { MiniPlayer } from '@/components/call/MiniPlayer';
-import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
 interface CallContextType {
@@ -45,7 +44,6 @@ interface CallProviderProps {
 
 export function CallProvider({ children }: CallProviderProps) {
     const call = useCall();
-    const { user: authUser } = useAuthStore();
     const [callFriend, setCallFriend] = useState<User | null>(null);
     const [isMinimized, setIsMinimized] = useState(false);
     const [callDuration, setCallDuration] = useState(0);
